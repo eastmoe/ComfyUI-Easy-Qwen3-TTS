@@ -2,19 +2,27 @@
   "category": "eastmoe/Comfy-Easy-Qwen3-TTS",
   "node_display_names": {
     "ComfyEasyQwen3TTSLoadModel": "Qwen3-TTS 加载模型",
+    "ComfyEasyQwen3TTSOnlineLoadModel": "Qwen3-TTS 在线加载模型",
     "ComfyEasyQwen3TTSCustomVoice": "Qwen3-TTS 预置音色合成",
     "ComfyEasyQwen3TTSVoiceDesign": "Qwen3-TTS 音色设计合成",
     "ComfyEasyQwen3TTSVoiceClone": "Qwen3-TTS 音色克隆合成"
   },
   "input_labels": {
     "model_mode": {"display_name": "模型模式", "tooltip": "选择要加载的 Qwen3-TTS 推理模型类型。"},
-    "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写绝对路径或 Hugging Face 仓库 ID。"},
+    "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写本地绝对路径。"},
     "speech_tokenizer_dir": {"display_name": "语音 Tokenizer 目录", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts/speech-tokenizer。若主模型缺少 speech_tokenizer 子目录，会尝试创建链接。"},
+    "download_source": {"display_name": "下载源", "tooltip": "选择 Hugging Face、hf-mirror 或自定义反向代理主机。"},
+    "model_repo_id": {"display_name": "主模型仓库", "tooltip": "auto 使用所选模型模式对应的官方 Qwen 仓库；也可填写其他 Hugging Face 仓库 ID。"},
+    "speech_tokenizer_repo_id": {"display_name": "语音 Tokenizer 仓库", "tooltip": "auto 使用 Qwen/Qwen3-TTS-Tokenizer-12Hz；仅在本地缺少 tokenizer 依赖时下载。"},
+    "custom_endpoint_host": {"display_name": "自定义 Host", "tooltip": "下载源为 custom 时使用的反向代理主机名，例如 hf.example.com；未写协议时默认 https。"},
+    "custom_endpoint_ip": {"display_name": "自定义 IP", "tooltip": "可选：将自定义 Host 解析到指定 IP 地址，保留 URL Host 用于反向代理和 TLS SNI。"},
+    "model_revision": {"display_name": "主模型版本", "tooltip": "可选 Hugging Face revision、branch、tag 或 commit。"},
+    "speech_tokenizer_revision": {"display_name": "Tokenizer 版本", "tooltip": "可选语音 Tokenizer 的 revision、branch、tag 或 commit。"},
+    "disable_ssl_verification": {"display_name": "关闭 SSL 认证", "tooltip": "下载时为 requests 与 httpx 关闭证书校验。"},
+    "force_download": {"display_name": "强制重新下载", "tooltip": "忽略本地 config.json 检查，重新调用 snapshot_download。"},
     "device_map": {"display_name": "计算设备", "tooltip": "传给 from_pretrained 的 device_map。"},
     "precision": {"display_name": "计算精度", "tooltip": "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。"},
     "attn_implementation": {"display_name": "注意力实现", "tooltip": "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。"},
-    "local_files_only": {"display_name": "仅使用本地文件", "tooltip": "禁止 Transformers 从网络下载缺失文件。"},
-    "allow_repo_id_fallback": {"display_name": "允许仓库回退", "tooltip": "auto 目录不存在且未启用仅本地时，回退到官方 Qwen 仓库 ID。"},
     "link_dependencies": {"display_name": "链接依赖模型", "tooltip": "当主模型目录缺少 speech_tokenizer 时，将独立依赖目录链接或复制到主模型目录。"},
     "low_cpu_mem_usage": {"display_name": "低 CPU 内存加载", "tooltip": "传给 Transformers 的 low_cpu_mem_usage。"},
     "use_safetensors": {"display_name": "使用 Safetensors", "tooltip": "优先加载 safetensors 权重。"},
@@ -46,14 +54,31 @@
   "ui": {
     "load": {
       "model_mode": {"display_name": "模型模式", "tooltip": "选择要加载的 Qwen3-TTS 推理模型类型。"},
-      "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写绝对路径或 Hugging Face 仓库 ID。"},
+      "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写本地绝对路径。"},
       "speech_tokenizer_dir": {"display_name": "语音 Tokenizer 目录", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts/speech-tokenizer。若主模型缺少 speech_tokenizer 子目录，会尝试创建链接。"},
       "device_map": {"display_name": "计算设备", "tooltip": "传给 from_pretrained 的 device_map。"},
       "precision": {"display_name": "计算精度", "tooltip": "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。"},
       "attn_implementation": {"display_name": "注意力实现", "tooltip": "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。"},
-      "local_files_only": {"display_name": "仅使用本地文件", "tooltip": "禁止 Transformers 从网络下载缺失文件。"},
-      "allow_repo_id_fallback": {"display_name": "允许仓库回退", "tooltip": "auto 目录不存在且未启用仅本地时，回退到官方 Qwen 仓库 ID。"},
       "link_dependencies": {"display_name": "链接依赖模型", "tooltip": "当主模型目录缺少 speech_tokenizer 时，将独立依赖目录链接或复制到主模型目录。"},
+      "low_cpu_mem_usage": {"display_name": "低 CPU 内存加载", "tooltip": "传给 Transformers 的 low_cpu_mem_usage。"},
+      "use_safetensors": {"display_name": "使用 Safetensors", "tooltip": "优先加载 safetensors 权重。"},
+      "trust_remote_code": {"display_name": "信任远程代码", "tooltip": "传给 Transformers 的 trust_remote_code。通常本插件不需要开启。"},
+      "reload_model": {"display_name": "重新加载", "tooltip": "忽略插件缓存并重新实例化模型。"}
+    },
+    "online_load": {
+      "model_mode": {"display_name": "模型模式", "tooltip": "选择要下载并加载的 Qwen3-TTS 推理模型类型。"},
+      "download_source": {"display_name": "下载源", "tooltip": "选择 Hugging Face、hf-mirror 或自定义反向代理主机。"},
+      "model_repo_id": {"display_name": "主模型仓库", "tooltip": "auto 使用所选模型模式对应的官方 Qwen 仓库；也可填写其他 Hugging Face 仓库 ID。"},
+      "speech_tokenizer_repo_id": {"display_name": "语音 Tokenizer 仓库", "tooltip": "auto 使用 Qwen/Qwen3-TTS-Tokenizer-12Hz；仅在本地缺少 tokenizer 依赖时下载。"},
+      "custom_endpoint_host": {"display_name": "自定义 Host", "tooltip": "下载源为 custom 时使用的反向代理主机名，例如 hf.example.com；未写协议时默认 https。"},
+      "custom_endpoint_ip": {"display_name": "自定义 IP", "tooltip": "可选：将自定义 Host 解析到指定 IP 地址，保留 URL Host 用于反向代理和 TLS SNI。"},
+      "model_revision": {"display_name": "主模型版本", "tooltip": "可选 Hugging Face revision、branch、tag 或 commit。"},
+      "speech_tokenizer_revision": {"display_name": "Tokenizer 版本", "tooltip": "可选语音 Tokenizer 的 revision、branch、tag 或 commit。"},
+      "device_map": {"display_name": "计算设备", "tooltip": "传给 from_pretrained 的 device_map。"},
+      "precision": {"display_name": "计算精度", "tooltip": "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。"},
+      "attn_implementation": {"display_name": "注意力实现", "tooltip": "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。"},
+      "disable_ssl_verification": {"display_name": "关闭 SSL 认证", "tooltip": "下载时为 requests 与 httpx 关闭证书校验。"},
+      "force_download": {"display_name": "强制重新下载", "tooltip": "忽略本地 config.json 检查，重新调用 snapshot_download。"},
       "low_cpu_mem_usage": {"display_name": "低 CPU 内存加载", "tooltip": "传给 Transformers 的 low_cpu_mem_usage。"},
       "use_safetensors": {"display_name": "使用 Safetensors", "tooltip": "优先加载 safetensors 权重。"},
       "trust_remote_code": {"display_name": "信任远程代码", "tooltip": "传给 Transformers 的 trust_remote_code。通常本插件不需要开启。"},
@@ -102,6 +127,13 @@
   "nodes": {
     "ComfyEasyQwen3TTSLoadModel": {
       "display_name": "Qwen3-TTS 加载模型",
+      "outputs": {
+        "模型": {"display_name": "模型"},
+        "信息": {"display_name": "信息"}
+      }
+    },
+    "ComfyEasyQwen3TTSOnlineLoadModel": {
+      "display_name": "Qwen3-TTS 在线加载模型",
       "outputs": {
         "模型": {"display_name": "模型"},
         "信息": {"display_name": "信息"}

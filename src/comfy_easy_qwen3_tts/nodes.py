@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import gc
+import inspect
 import json
 import os
 import random
 import shutil
+import socket
 import sys
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
@@ -30,6 +34,7 @@ MODEL_FOLDER_NAME = "qwen3-tts"
 MODEL_TYPE = "QWEN3_TTS_MODEL"
 
 MODEL_MODE_OPTIONS = ["custom-voice", "voice-design", "voice-clone"]
+DOWNLOAD_SOURCE_OPTIONS = ["huggingface", "hf-mirror", "custom"]
 PRECISION_OPTIONS = ["auto", "float16", "bfloat16", "float32"]
 DEVICE_MAP_OPTIONS = ["cuda:0", "auto", "cpu"]
 ATTENTION_OPTIONS = ["auto", "flash_attention_2", "sdpa", "eager"]
@@ -45,6 +50,7 @@ DEFAULT_REPO_IDS = {
     "voice-clone": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
 }
 DEFAULT_TOKENIZER_SUBDIR = "speech-tokenizer"
+DEFAULT_TOKENIZER_REPO_ID = "Qwen/Qwen3-TTS-Tokenizer-12Hz"
 
 _RUNTIME_LOCK = threading.RLock()
 _MODEL_CACHE: dict[tuple[Any, ...], "Qwen3TTSHandle"] = {}
@@ -153,6 +159,186 @@ def _resolve_tokenizer_dir(tokenizer_dir: str) -> Path | None:
         return path if path.is_dir() else None
     path = Path(text).expanduser()
     return path if path.is_dir() else None
+
+
+def _has_config_json(path: Path) -> bool:
+    return path.is_dir() and (path / "config.json").is_file()
+
+
+def _repo_or_default(repo_id: str, default_repo_id: str) -> str:
+    text = (repo_id or "").strip()
+    return default_repo_id if not text or text.lower() == "auto" else text
+
+
+def _endpoint_for_download(download_source: str, custom_endpoint_host: str) -> str | None:
+    source = (download_source or "huggingface").strip().lower()
+    if source == "huggingface":
+        return None
+    if source == "hf-mirror":
+        return "https://hf-mirror.com"
+    if source != "custom":
+        raise ValueError(f"Unsupported download source: {download_source}")
+    host = (custom_endpoint_host or "").strip()
+    if not host:
+        raise ValueError("Custom download source requires a host name.")
+    if "://" not in host:
+        host = f"https://{host}"
+    parsed = urlparse(host)
+    if not parsed.hostname:
+        raise ValueError(f"Invalid custom endpoint host: {custom_endpoint_host}")
+    return host.rstrip("/")
+
+
+@contextmanager
+def _patched_download_network(endpoint: str | None, custom_endpoint_ip: str, disable_ssl_verification: bool):
+    parsed = urlparse(endpoint or "")
+    override_host = parsed.hostname
+    override_ip = (custom_endpoint_ip or "").strip()
+    original_getaddrinfo = socket.getaddrinfo
+    original_requests_request = None
+    original_httpx_client_init = None
+    original_httpx_async_client_init = None
+
+    if override_host and override_ip:
+        def patched_getaddrinfo(host, *args, **kwargs):
+            if host == override_host:
+                host = override_ip
+            return original_getaddrinfo(host, *args, **kwargs)
+
+        socket.getaddrinfo = patched_getaddrinfo
+
+    if disable_ssl_verification:
+        try:
+            import requests
+
+            original_requests_request = requests.sessions.Session.request
+
+            def patched_requests_request(self, method, url, **kwargs):
+                kwargs["verify"] = False
+                return original_requests_request(self, method, url, **kwargs)
+
+            requests.sessions.Session.request = patched_requests_request
+        except Exception:
+            original_requests_request = None
+
+        try:
+            import httpx
+
+            original_httpx_client_init = httpx.Client.__init__
+            original_httpx_async_client_init = httpx.AsyncClient.__init__
+
+            def patched_httpx_client_init(self, *args, **kwargs):
+                kwargs["verify"] = False
+                return original_httpx_client_init(self, *args, **kwargs)
+
+            def patched_httpx_async_client_init(self, *args, **kwargs):
+                kwargs["verify"] = False
+                return original_httpx_async_client_init(self, *args, **kwargs)
+
+            httpx.Client.__init__ = patched_httpx_client_init
+            httpx.AsyncClient.__init__ = patched_httpx_async_client_init
+        except Exception:
+            original_httpx_client_init = None
+            original_httpx_async_client_init = None
+
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original_getaddrinfo
+        if original_requests_request is not None:
+            import requests
+
+            requests.sessions.Session.request = original_requests_request
+        if original_httpx_client_init is not None and original_httpx_async_client_init is not None:
+            import httpx
+
+            httpx.Client.__init__ = original_httpx_client_init
+            httpx.AsyncClient.__init__ = original_httpx_async_client_init
+
+
+def _snapshot_download_to_dir(
+    repo_id: str,
+    local_dir: Path,
+    download_source: str,
+    custom_endpoint_host: str,
+    custom_endpoint_ip: str,
+    revision: str,
+    disable_ssl_verification: bool,
+    force_download: bool,
+) -> str:
+    endpoint = _endpoint_for_download(download_source, custom_endpoint_host)
+    old_endpoint = os.environ.get("HF_ENDPOINT")
+    old_disable_ssl = os.environ.get("HF_HUB_DISABLE_SSL_VERIFICATION")
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+    if disable_ssl_verification:
+        os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = "1"
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        if old_endpoint is None:
+            os.environ.pop("HF_ENDPOINT", None)
+        else:
+            os.environ["HF_ENDPOINT"] = old_endpoint
+        if old_disable_ssl is None:
+            os.environ.pop("HF_HUB_DISABLE_SSL_VERIFICATION", None)
+        else:
+            os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = old_disable_ssl
+        raise ImportError("Online download requires huggingface_hub. Please install it in the ComfyUI Python environment.") from exc
+
+    local_dir.mkdir(parents=True, exist_ok=True)
+    kwargs: dict[str, Any] = {
+        "repo_id": repo_id,
+        "local_dir": str(local_dir),
+        "force_download": bool(force_download),
+    }
+    if revision:
+        kwargs["revision"] = revision
+
+    signature = inspect.signature(snapshot_download)
+    if "endpoint" in signature.parameters and endpoint:
+        kwargs["endpoint"] = endpoint
+    if "local_dir_use_symlinks" in signature.parameters:
+        kwargs["local_dir_use_symlinks"] = False
+
+    try:
+        with _patched_download_network(endpoint, custom_endpoint_ip, bool(disable_ssl_verification)):
+            return str(snapshot_download(**kwargs))
+    finally:
+        if old_endpoint is None:
+            os.environ.pop("HF_ENDPOINT", None)
+        else:
+            os.environ["HF_ENDPOINT"] = old_endpoint
+        if old_disable_ssl is None:
+            os.environ.pop("HF_HUB_DISABLE_SSL_VERIFICATION", None)
+        else:
+            os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = old_disable_ssl
+
+
+def _ensure_downloaded_snapshot(
+    repo_id: str,
+    local_dir: Path,
+    download_source: str,
+    custom_endpoint_host: str,
+    custom_endpoint_ip: str,
+    revision: str,
+    disable_ssl_verification: bool,
+    force_download: bool,
+) -> str:
+    if _has_config_json(local_dir) and not force_download:
+        return f"exists: {local_dir}"
+    downloaded = _snapshot_download_to_dir(
+        repo_id=repo_id,
+        local_dir=local_dir,
+        download_source=download_source,
+        custom_endpoint_host=custom_endpoint_host,
+        custom_endpoint_ip=custom_endpoint_ip,
+        revision=revision,
+        disable_ssl_verification=disable_ssl_verification,
+        force_download=force_download,
+    )
+    return f"downloaded: {repo_id} -> {downloaded}"
 
 
 def _ensure_speech_tokenizer_link(model_path: str, tokenizer_dir: str, link_dependencies: bool) -> str:
@@ -304,6 +490,65 @@ class Qwen3TTSHandle:
         }
 
 
+def _load_qwen3_tts_handle(
+    model_mode: str,
+    resolved_model_path: str,
+    speech_tokenizer_dir: str,
+    device_map: str,
+    precision: str,
+    attn_implementation: str,
+    dependency_status: str,
+    low_cpu_mem_usage: bool,
+    use_safetensors: bool,
+    trust_remote_code: bool,
+    reload_model: bool,
+):
+    _ensure_qwen_tts_on_path()
+    dtype = _dtype_from_precision(precision)
+    kwargs: dict[str, Any] = {
+        "device_map": device_map,
+        "local_files_only": True,
+        "low_cpu_mem_usage": bool(low_cpu_mem_usage),
+        "use_safetensors": bool(use_safetensors),
+        "trust_remote_code": bool(trust_remote_code),
+    }
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    if attn_implementation != "auto":
+        kwargs["attn_implementation"] = attn_implementation
+    key = (
+        model_mode,
+        resolved_model_path,
+        str(_resolve_tokenizer_dir(speech_tokenizer_dir)),
+        device_map,
+        precision,
+        attn_implementation,
+        bool(low_cpu_mem_usage),
+        bool(use_safetensors),
+        bool(trust_remote_code),
+    )
+    with _RUNTIME_LOCK:
+        if reload_model:
+            _MODEL_CACHE.pop(key, None)
+            _cleanup_memory()
+        handle = _MODEL_CACHE.get(key)
+        if handle is None:
+            from qwen_tts import Qwen3TTSModel
+
+            model = Qwen3TTSModel.from_pretrained(resolved_model_path, **kwargs)
+            handle = Qwen3TTSHandle(
+                model=model,
+                model_mode=model_mode,
+                model_path=resolved_model_path,
+                precision=precision,
+                device_map=device_map,
+                attn_implementation=attn_implementation,
+                dependency_status=dependency_status,
+            )
+            _MODEL_CACHE[key] = handle
+    return handle
+
+
 class ComfyEasyQwen3TTSLoadModel:
     @classmethod
     def INPUT_TYPES(cls):
@@ -315,7 +560,7 @@ class ComfyEasyQwen3TTSLoadModel:
                     ui(
                         "load.model_path",
                         "模型路径",
-                        "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写绝对路径或 Hugging Face 仓库 ID。",
+                        "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写本地绝对路径。",
                         default="auto",
                     ),
                 ),
@@ -331,11 +576,6 @@ class ComfyEasyQwen3TTSLoadModel:
                 "device_map": (DEVICE_MAP_OPTIONS, ui("load.device_map", "计算设备", "传给 from_pretrained 的 device_map。")),
                 "precision": (PRECISION_OPTIONS, ui("load.precision", "计算精度", "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。")),
                 "attn_implementation": (ATTENTION_OPTIONS, ui("load.attn_implementation", "注意力实现", "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。")),
-                "local_files_only": ("BOOLEAN", ui("load.local_files_only", "仅使用本地文件", "禁止 Transformers 从网络下载缺失文件。", default=True)),
-                "allow_repo_id_fallback": (
-                    "BOOLEAN",
-                    ui("load.allow_repo_id_fallback", "允许仓库回退", "auto 目录不存在且未启用仅本地时，回退到官方 Qwen 仓库 ID。", default=False),
-                ),
                 "link_dependencies": (
                     "BOOLEAN",
                     ui("load.link_dependencies", "链接依赖模型", "当主模型目录缺少 speech_tokenizer 时，将独立依赖目录链接或复制到主模型目录。", default=True),
@@ -361,61 +601,173 @@ class ComfyEasyQwen3TTSLoadModel:
         device_map: str = "cuda:0",
         precision: str = "auto",
         attn_implementation: str = "auto",
-        local_files_only: bool = True,
-        allow_repo_id_fallback: bool = False,
         link_dependencies: bool = True,
         low_cpu_mem_usage: bool = True,
         use_safetensors: bool = True,
         trust_remote_code: bool = False,
         reload_model: bool = False,
     ):
-        _ensure_qwen_tts_on_path()
         model_mode = model_mode if model_mode in MODEL_MODE_OPTIONS else "custom-voice"
-        resolved_model_path = _resolve_model_path(model_mode, model_path, bool(allow_repo_id_fallback and not local_files_only))
+        resolved_model_path = _resolve_model_path(model_mode, model_path, False)
         dependency_status = _ensure_speech_tokenizer_link(resolved_model_path, speech_tokenizer_dir, bool(link_dependencies))
-        dtype = _dtype_from_precision(precision)
-        kwargs: dict[str, Any] = {
-            "device_map": device_map,
-            "local_files_only": bool(local_files_only),
-            "low_cpu_mem_usage": bool(low_cpu_mem_usage),
-            "use_safetensors": bool(use_safetensors),
-            "trust_remote_code": bool(trust_remote_code),
-        }
-        if dtype is not None:
-            kwargs["dtype"] = dtype
-        if attn_implementation != "auto":
-            kwargs["attn_implementation"] = attn_implementation
-        key = (
-            model_mode,
-            resolved_model_path,
-            str(_resolve_tokenizer_dir(speech_tokenizer_dir)),
-            device_map,
-            precision,
-            attn_implementation,
-            bool(local_files_only),
-            bool(low_cpu_mem_usage),
-            bool(use_safetensors),
-            bool(trust_remote_code),
+        handle = _load_qwen3_tts_handle(
+            model_mode=model_mode,
+            resolved_model_path=resolved_model_path,
+            speech_tokenizer_dir=speech_tokenizer_dir,
+            device_map=device_map,
+            precision=precision,
+            attn_implementation=attn_implementation,
+            dependency_status=dependency_status,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+            use_safetensors=use_safetensors,
+            trust_remote_code=trust_remote_code,
+            reload_model=reload_model,
         )
-        with _RUNTIME_LOCK:
-            if reload_model:
-                _MODEL_CACHE.pop(key, None)
-                _cleanup_memory()
-            handle = _MODEL_CACHE.get(key)
-            if handle is None:
-                from qwen_tts import Qwen3TTSModel
+        return (handle, json.dumps(handle.info(), ensure_ascii=False, indent=2))
 
-                model = Qwen3TTSModel.from_pretrained(resolved_model_path, **kwargs)
-                handle = Qwen3TTSHandle(
-                    model=model,
-                    model_mode=model_mode,
-                    model_path=resolved_model_path,
-                    precision=precision,
-                    device_map=device_map,
-                    attn_implementation=attn_implementation,
-                    dependency_status=dependency_status,
-                )
-                _MODEL_CACHE[key] = handle
+
+class ComfyEasyQwen3TTSOnlineLoadModel:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model_mode": (MODEL_MODE_OPTIONS, ui("online_load.model_mode", "模型模式", "选择要下载并加载的 Qwen3-TTS 推理模型类型。")),
+                "download_source": (DOWNLOAD_SOURCE_OPTIONS, ui("online_load.download_source", "下载源", "选择 Hugging Face、hf-mirror 或自定义反向代理主机。")),
+                "model_repo_id": (
+                    "STRING",
+                    ui(
+                        "online_load.model_repo_id",
+                        "主模型仓库",
+                        "auto 使用所选模型模式对应的官方 Qwen 仓库；也可填写其他 Hugging Face 仓库 ID。",
+                        default="auto",
+                    ),
+                ),
+                "speech_tokenizer_repo_id": (
+                    "STRING",
+                    ui(
+                        "online_load.speech_tokenizer_repo_id",
+                        "语音 Tokenizer 仓库",
+                        "auto 使用 Qwen/Qwen3-TTS-Tokenizer-12Hz；仅在本地缺少 tokenizer 依赖时下载。",
+                        default="auto",
+                    ),
+                ),
+                "custom_endpoint_host": (
+                    "STRING",
+                    ui(
+                        "online_load.custom_endpoint_host",
+                        "自定义 Host",
+                        "下载源为 custom 时使用的反向代理主机名，例如 hf.example.com；未写协议时默认 https。",
+                        default="",
+                    ),
+                ),
+                "custom_endpoint_ip": (
+                    "STRING",
+                    ui(
+                        "online_load.custom_endpoint_ip",
+                        "自定义 IP",
+                        "可选：将自定义 Host 解析到指定 IP 地址，保留 URL Host 用于反向代理和 TLS SNI。",
+                        default="",
+                    ),
+                ),
+                "model_revision": (
+                    "STRING",
+                    ui("online_load.model_revision", "主模型版本", "可选 Hugging Face revision、branch、tag 或 commit。", default=""),
+                ),
+                "speech_tokenizer_revision": (
+                    "STRING",
+                    ui("online_load.speech_tokenizer_revision", "Tokenizer 版本", "可选语音 Tokenizer 的 revision、branch、tag 或 commit。", default=""),
+                ),
+                "device_map": (DEVICE_MAP_OPTIONS, ui("online_load.device_map", "计算设备", "传给 from_pretrained 的 device_map。")),
+                "precision": (PRECISION_OPTIONS, ui("online_load.precision", "计算精度", "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。")),
+                "attn_implementation": (ATTENTION_OPTIONS, ui("online_load.attn_implementation", "注意力实现", "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。")),
+                "disable_ssl_verification": (
+                    "BOOLEAN",
+                    ui("online_load.disable_ssl_verification", "关闭 SSL 认证", "下载时为 requests 与 httpx 关闭证书校验。", default=False),
+                ),
+                "force_download": (
+                    "BOOLEAN",
+                    ui("online_load.force_download", "强制重新下载", "忽略本地 config.json 检查，重新调用 snapshot_download。", default=False),
+                ),
+                "low_cpu_mem_usage": ("BOOLEAN", ui("online_load.low_cpu_mem_usage", "低 CPU 内存加载", "传给 Transformers 的 low_cpu_mem_usage。", default=True)),
+                "use_safetensors": ("BOOLEAN", ui("online_load.use_safetensors", "使用 Safetensors", "优先加载 safetensors 权重。", default=True)),
+                "trust_remote_code": ("BOOLEAN", ui("online_load.trust_remote_code", "信任远程代码", "传给 Transformers 的 trust_remote_code。通常本插件不需要开启。", default=False)),
+                "reload_model": ("BOOLEAN", ui("online_load.reload_model", "重新加载", "忽略插件缓存并重新实例化模型。", default=False)),
+            },
+        }
+
+    RETURN_TYPES = (MODEL_TYPE, "STRING")
+    RETURN_NAMES = ("模型", "信息")
+    FUNCTION = "load"
+    CATEGORY = CATEGORY
+    DESCRIPTION = "检查本地模型目录，缺失时从 Hugging Face、hf-mirror 或自定义反向代理下载主模型和依赖模型，下载完成后加载。"
+
+    def load(
+        self,
+        model_mode: str,
+        download_source: str = "huggingface",
+        model_repo_id: str = "auto",
+        speech_tokenizer_repo_id: str = "auto",
+        custom_endpoint_host: str = "",
+        custom_endpoint_ip: str = "",
+        model_revision: str = "",
+        speech_tokenizer_revision: str = "",
+        device_map: str = "cuda:0",
+        precision: str = "auto",
+        attn_implementation: str = "auto",
+        disable_ssl_verification: bool = False,
+        force_download: bool = False,
+        low_cpu_mem_usage: bool = True,
+        use_safetensors: bool = True,
+        trust_remote_code: bool = False,
+        reload_model: bool = False,
+    ):
+        model_mode = model_mode if model_mode in MODEL_MODE_OPTIONS else "custom-voice"
+        local_model_dir = default_model_dir(model_mode)
+        local_tokenizer_dir = default_tokenizer_dir()
+        resolved_model_repo_id = _repo_or_default(model_repo_id, DEFAULT_REPO_IDS[model_mode])
+        resolved_tokenizer_repo_id = _repo_or_default(speech_tokenizer_repo_id, DEFAULT_TOKENIZER_REPO_ID)
+
+        model_status = _ensure_downloaded_snapshot(
+            repo_id=resolved_model_repo_id,
+            local_dir=local_model_dir,
+            download_source=download_source,
+            custom_endpoint_host=custom_endpoint_host,
+            custom_endpoint_ip=custom_endpoint_ip,
+            revision=(model_revision or "").strip(),
+            disable_ssl_verification=bool(disable_ssl_verification),
+            force_download=bool(force_download),
+        )
+
+        embedded_tokenizer_dir = local_model_dir / "speech_tokenizer"
+        if _has_config_json(embedded_tokenizer_dir):
+            tokenizer_status = f"exists: {embedded_tokenizer_dir}"
+        else:
+            tokenizer_status = _ensure_downloaded_snapshot(
+                repo_id=resolved_tokenizer_repo_id,
+                local_dir=local_tokenizer_dir,
+                download_source=download_source,
+                custom_endpoint_host=custom_endpoint_host,
+                custom_endpoint_ip=custom_endpoint_ip,
+                revision=(speech_tokenizer_revision or "").strip(),
+                disable_ssl_verification=bool(disable_ssl_verification),
+                force_download=bool(force_download),
+            )
+
+        link_status = _ensure_speech_tokenizer_link(str(local_model_dir), str(local_tokenizer_dir), True)
+        dependency_status = "; ".join([model_status, tokenizer_status, link_status])
+        handle = _load_qwen3_tts_handle(
+            model_mode=model_mode,
+            resolved_model_path=str(local_model_dir),
+            speech_tokenizer_dir=str(local_tokenizer_dir),
+            device_map=device_map,
+            precision=precision,
+            attn_implementation=attn_implementation,
+            dependency_status=dependency_status,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+            use_safetensors=use_safetensors,
+            trust_remote_code=trust_remote_code,
+            reload_model=reload_model,
+        )
         return (handle, json.dumps(handle.info(), ensure_ascii=False, indent=2))
 
 
@@ -570,6 +922,7 @@ class ComfyEasyQwen3TTSVoiceClone(_Qwen3TTSInferBase):
 
 NODE_CLASS_MAPPINGS = {
     "ComfyEasyQwen3TTSLoadModel": ComfyEasyQwen3TTSLoadModel,
+    "ComfyEasyQwen3TTSOnlineLoadModel": ComfyEasyQwen3TTSOnlineLoadModel,
     "ComfyEasyQwen3TTSCustomVoice": ComfyEasyQwen3TTSCustomVoice,
     "ComfyEasyQwen3TTSVoiceDesign": ComfyEasyQwen3TTSVoiceDesign,
     "ComfyEasyQwen3TTSVoiceClone": ComfyEasyQwen3TTSVoiceClone,
@@ -579,6 +932,7 @@ NODE_DISPLAY_NAME_MAPPINGS = tr_mapping(
     "node_display_names",
     {
         "ComfyEasyQwen3TTSLoadModel": "Qwen3-TTS Load Model",
+        "ComfyEasyQwen3TTSOnlineLoadModel": "Qwen3-TTS Online Load Model",
         "ComfyEasyQwen3TTSCustomVoice": "Qwen3-TTS Custom Voice",
         "ComfyEasyQwen3TTSVoiceDesign": "Qwen3-TTS Voice Design",
         "ComfyEasyQwen3TTSVoiceClone": "Qwen3-TTS Voice Clone",
