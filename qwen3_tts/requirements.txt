@@ -8,8 +8,8 @@
 
 # huggingface_hub # deps provide by transformers
 
-librosa
-soundfile
-sox
-onnxruntime
+# librosa # Replaced by torchaudio
+# soundfile # Replaced by torchaudio
+# sox # Replaced by torch RMS
 
+onnxruntime

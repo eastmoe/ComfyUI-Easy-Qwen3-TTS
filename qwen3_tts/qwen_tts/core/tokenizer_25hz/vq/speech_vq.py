@@ -13,8 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import sox
-import copy
 import torch
 import operator
 import onnxruntime
@@ -23,11 +21,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio.compliance.kaldi as kaldi
 
-from librosa.filters import mel as librosa_mel_fn
 from itertools import accumulate
 from typing import List
 from torch import Tensor
 
+from qwen_tts.audio_utils import mel_filterbank, torch_norm_db
 from .core_vq import DistributedGroupResidualVectorQuantization
 from .whisper_encoder import WhisperEncoder, Conv1d, ConvTranspose1d
 
@@ -97,8 +95,15 @@ class MelSpectrogramFeatures(nn.Module):
 
         y = audio
         if len(list(self.mel_basis.keys())) == 0:
-            mel = librosa_mel_fn(sr=self.sampling_rate, n_fft=self.filter_length, n_mels=self.n_mel_channels, fmin=self.mel_fmin, fmax=self.mel_fmax)
-            self.mel_basis[str(self.mel_fmax)+'_'+str(y.device)] = torch.from_numpy(mel).float().to(y.device)
+            mel = mel_filterbank(
+                sample_rate=self.sampling_rate,
+                n_fft=self.filter_length,
+                n_mels=self.n_mel_channels,
+                f_min=self.mel_fmin,
+                f_max=self.mel_fmax,
+                device=y.device,
+            )
+            self.mel_basis[str(self.mel_fmax)+'_'+str(y.device)] = mel
             self.hann_window[str(y.device)] = torch.hann_window(self.win_length).to(y.device)
 
         y = torch.nn.functional.pad(y.unsqueeze(1), (int((self.filter_length-self.hop_length)/2), int((self.filter_length-self.hop_length)/2)), mode='reflect')
@@ -124,9 +129,6 @@ class XVectorExtractor(nn.Module):
         providers = ["CPUExecutionProvider"]
         self.ort_session = onnxruntime.InferenceSession(audio_codec_with_xvector, sess_options=option, providers=providers)
 
-        self.tfm = sox.Transformer()
-        self.tfm.norm(db_level=-6)
-
         self.mel_ext = MelSpectrogramFeatures(
             filter_length=1024,
             hop_length=160,
@@ -141,7 +143,7 @@ class XVectorExtractor(nn.Module):
         with torch.no_grad():
             norm_audio = self.sox_norm(audio)
 
-            norm_audio = torch.from_numpy(copy.deepcopy(norm_audio)).unsqueeze(0)
+            norm_audio = torch.from_numpy(norm_audio.copy()).unsqueeze(0)
             feat = kaldi.fbank(norm_audio,
                             num_mel_bins=80,
                             dither=0,
@@ -155,8 +157,9 @@ class XVectorExtractor(nn.Module):
         return norm_embedding.numpy(), ref_mel.permute(0,2,1).squeeze(0).numpy()
     
     def sox_norm(self, audio):
-        wav_norm = self.tfm.build_array(input_array=audio, sample_rate_in=16000)
-        return wav_norm
+        audio_tensor = torch.as_tensor(audio, dtype=torch.float32)
+        wav_norm = torch_norm_db(audio_tensor, db_level=-6)
+        return wav_norm.detach().cpu().numpy()
 
 
 class WhisperEncoderVQ(WhisperEncoder):

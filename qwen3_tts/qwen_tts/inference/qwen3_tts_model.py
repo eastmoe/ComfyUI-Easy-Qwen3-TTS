@@ -20,12 +20,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
-import librosa
 import numpy as np
-import soundfile as sf
 import torch
 from transformers import AutoConfig, AutoModel, AutoProcessor
 
+from ..audio_utils import load_audio_mono_float32, resample_np
 from ..core.models import Qwen3TTSConfig, Qwen3TTSForConditionalGeneration, Qwen3TTSProcessor
 
 AudioLike = Union[
@@ -209,13 +208,13 @@ class Qwen3TTSModel:
             with urllib.request.urlopen(x) as resp:
                 audio_bytes = resp.read()
             with io.BytesIO(audio_bytes) as f:
-                audio, sr = sf.read(f, dtype="float32", always_2d=False)
+                audio, sr = load_audio_mono_float32(f)
         elif self._is_probably_base64(x):
             wav_bytes = self._decode_base64_to_wav_bytes(x)
             with io.BytesIO(wav_bytes) as f:
-                audio, sr = sf.read(f, dtype="float32", always_2d=False)
+                audio, sr = load_audio_mono_float32(f)
         else:
-            audio, sr = librosa.load(x, sr=None, mono=True)
+            audio, sr = load_audio_mono_float32(x)
 
         if audio.ndim > 1:
             audio = np.mean(audio, axis=-1)
@@ -439,9 +438,11 @@ class Qwen3TTSModel:
 
             wav_resample = wav
             if sr != self.model.speaker_encoder_sample_rate:
-                wav_resample = librosa.resample(y=wav_resample.astype(np.float32), 
-                                           orig_sr=int(sr), 
-                                           target_sr=self.model.speaker_encoder_sample_rate)
+                wav_resample = resample_np(
+                    wav_resample.astype(np.float32),
+                    orig_sr=int(sr),
+                    target_sr=self.model.speaker_encoder_sample_rate,
+                )
 
             spk_emb = self.model.extract_speaker_embedding(audio=wav_resample,
                                                            sr=self.model.speaker_encoder_sample_rate)

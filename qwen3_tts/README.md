@@ -22,7 +22,7 @@ pip install -U flash-attn --no-build-isolation
 
 ```python
 import torch
-import soundfile as sf
+import torchaudio
 from qwen_tts import Qwen3TTSModel
 
 model = Qwen3TTSModel.from_pretrained(
@@ -38,14 +38,14 @@ wavs, sr = model.generate_custom_voice(
     speaker="Vivian",
     instruct="用特别愤怒的语气说",
 )
-sf.write("output_custom_voice.wav", wavs[0], sr)
+torchaudio.save("output_custom_voice.wav", torch.from_numpy(wavs[0]).unsqueeze(0), sr)
 ```
 
 ## Voice Design
 
 ```python
 import torch
-import soundfile as sf
+import torchaudio
 from qwen_tts import Qwen3TTSModel
 
 model = Qwen3TTSModel.from_pretrained(
@@ -60,14 +60,14 @@ wavs, sr = model.generate_voice_design(
     language="Chinese",
     instruct="体现撒娇稚嫩的萝莉女声，音调偏高且起伏明显。",
 )
-sf.write("output_voice_design.wav", wavs[0], sr)
+torchaudio.save("output_voice_design.wav", torch.from_numpy(wavs[0]).unsqueeze(0), sr)
 ```
 
 ## Voice Clone
 
 ```python
 import torch
-import soundfile as sf
+import torchaudio
 from qwen_tts import Qwen3TTSModel
 
 model = Qwen3TTSModel.from_pretrained(
@@ -83,13 +83,14 @@ wavs, sr = model.generate_voice_clone(
     ref_audio="reference.wav",
     ref_text="Reference transcript for the uploaded audio.",
 )
-sf.write("output_voice_clone.wav", wavs[0], sr)
+torchaudio.save("output_voice_clone.wav", torch.from_numpy(wavs[0]).unsqueeze(0), sr)
 ```
 
 ## Tokenizer
 
 ```python
-import soundfile as sf
+import torch
+import torchaudio
 from qwen_tts import Qwen3TTSTokenizer
 
 tokenizer = Qwen3TTSTokenizer.from_pretrained(
@@ -99,5 +100,5 @@ tokenizer = Qwen3TTSTokenizer.from_pretrained(
 
 encoded = tokenizer.encode("input.wav")
 wavs, sr = tokenizer.decode(encoded)
-sf.write("decoded.wav", wavs[0], sr)
+torchaudio.save("decoded.wav", torch.from_numpy(wavs[0]).unsqueeze(0), sr)
 ```

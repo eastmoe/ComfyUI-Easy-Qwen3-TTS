@@ -19,13 +19,12 @@ import urllib.request
 from typing import List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
-import librosa
 import numpy as np
-import soundfile as sf
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoConfig, AutoFeatureExtractor, AutoModel
 
+from ..audio_utils import load_audio_mono_float32, resample_np
 from ..core import (
     Qwen3TTSTokenizerV1Config,
     Qwen3TTSTokenizerV1Model,
@@ -141,19 +140,19 @@ class Qwen3TTSTokenizer:
             with urllib.request.urlopen(x) as resp:
                 audio_bytes = resp.read()
             with io.BytesIO(audio_bytes) as f:
-                audio, sr = sf.read(f, dtype="float32", always_2d=False)
+                audio, sr = load_audio_mono_float32(f)
         elif self._is_probably_base64(x):
             wav_bytes = self._decode_base64_to_wav_bytes(x)
             with io.BytesIO(wav_bytes) as f:
-                audio, sr = sf.read(f, dtype="float32", always_2d=False)
+                audio, sr = load_audio_mono_float32(f)
         else:
-            audio, sr = librosa.load(x, sr=None, mono=True)
+            audio, sr = load_audio_mono_float32(x)
 
         if audio.ndim > 1:
             audio = np.mean(audio, axis=-1)
 
         if sr != target_sr:
-            audio = librosa.resample(y=audio, orig_sr=sr, target_sr=target_sr)
+            audio = resample_np(audio, orig_sr=sr, target_sr=target_sr)
 
         return audio.astype(np.float32)
 
@@ -201,7 +200,7 @@ class Qwen3TTSTokenizer:
             if a.ndim > 1:
                 a = np.mean(a, axis=-1)
             if int(sr) != target_sr:
-                a = librosa.resample(y=a.astype(np.float32), orig_sr=int(sr), target_sr=target_sr)
+                a = resample_np(a.astype(np.float32), orig_sr=int(sr), target_sr=target_sr)
             out.append(a.astype(np.float32))
         return out
 

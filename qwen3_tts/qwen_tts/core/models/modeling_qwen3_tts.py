@@ -22,10 +22,10 @@ from typing import Callable, Optional
 import huggingface_hub
 import torch
 from huggingface_hub import snapshot_download
-from librosa.filters import mel as librosa_mel_fn
 from torch import nn
 from torch.nn import functional as F
 
+from qwen_tts.audio_utils import mel_filterbank
 from ...compat import (
     ACT2FN,
     ALL_ATTENTION_FUNCTIONS,
@@ -414,7 +414,8 @@ def mel_spectrogram(
 ) -> torch.Tensor:
     """
     Calculate the mel spectrogram of an input signal.
-    This function uses slaney norm for the librosa mel filterbank (using librosa.filters.mel) and uses Hann window for STFT (using torch.stft).
+    This function uses a Slaney mel filterbank (torchaudio.functional.melscale_fbanks)
+    and a Hann window for STFT (torch.stft).
 
     Args:
         y (torch.Tensor): Input signal.
@@ -424,7 +425,7 @@ def mel_spectrogram(
         hop_size (int): Hop size for STFT.
         win_size (int): Window size for STFT.
         fmin (int): Minimum frequency for mel filterbank.
-        fmax (int): Maximum frequency for mel filterbank. If None, defaults to half the sampling rate (fmax = sr / 2.0) inside librosa_mel_fn
+        fmax (int): Maximum frequency for mel filterbank. If None, defaults to half the sampling rate.
         center (bool): Whether to pad the input to center the frames. Default is False.
 
     Returns:
@@ -437,11 +438,14 @@ def mel_spectrogram(
 
     device = y.device
 
-    mel = librosa_mel_fn(
-        sr=sampling_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax
+    mel_basis = mel_filterbank(
+        sample_rate=sampling_rate,
+        n_fft=n_fft,
+        n_mels=num_mels,
+        f_min=fmin,
+        f_max=fmax,
+        device=device,
     )
-
-    mel_basis = torch.from_numpy(mel).float().to(device)
     hann_window = torch.hann_window(win_size).to(device)
 
     padding = (n_fft - hop_size) // 2

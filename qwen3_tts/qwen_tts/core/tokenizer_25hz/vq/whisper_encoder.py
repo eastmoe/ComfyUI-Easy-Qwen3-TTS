@@ -44,12 +44,12 @@ HOP_LENGTH = 160
 def mel_filters(device, n_mels: int) -> torch.Tensor:
     """
     load the mel filterbank matrix for projecting STFT into a Mel spectrogram.
-    Allows decoupling librosa dependency; saved using:
+    Allows decoupling the mel filterbank generation dependency; saved using:
 
         np.savez_compressed(
             "mel_filters.npz",
-            mel_80=librosa.filters.mel(sr=16000, n_fft=400, n_mels=80),
-            mel_128=librosa.filters.mel(sr=16000, n_fft=400, n_mels=128),
+            mel_80=<80-bin mel filterbank>,
+            mel_128=<128-bin mel filterbank>,
         )
     """
     assert n_mels in {80, 128}, f"Unsupported n_mels: {n_mels}"
