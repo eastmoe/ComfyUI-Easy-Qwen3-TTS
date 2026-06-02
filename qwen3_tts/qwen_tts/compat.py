@@ -24,45 +24,46 @@ def _require_transformers() -> None:
 
 _require_transformers()
 
-from transformers.cache_utils import Cache, DynamicCache  # noqa: E402
-from transformers.activations import ACT2FN  # noqa: E402
-from transformers.configuration_utils import PretrainedConfig  # noqa: E402
+from .transformer_patch.transformers_4573.activations import ACT2FN  # noqa: E402
+from .transformer_patch.transformers_4573.configuration_utils import PretrainedConfig  # noqa: E402
 try:  # noqa: E402
-    from transformers.configuration_utils import ALLOWED_LAYER_TYPES  # noqa: E402
+    from .transformer_patch.transformers_4573.configuration_utils import ALLOWED_LAYER_TYPES  # noqa: E402
 except ImportError:  # pragma: no cover - older transformers
     ALLOWED_LAYER_TYPES = None
-from transformers.configuration_utils import layer_type_validation as _transformers_layer_type_validation  # noqa: E402
-from transformers.feature_extraction_utils import BatchFeature  # noqa: E402
-from transformers.generation import GenerationMixin  # noqa: E402
-from transformers.integrations import use_kernel_forward_from_hub  # noqa: E402
-from transformers.masking_utils import (  # noqa: E402
-    create_causal_mask as _transformers_create_causal_mask,
-    create_sliding_window_causal_mask as _transformers_create_sliding_window_causal_mask,
-)
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs  # noqa: E402
-from transformers.modeling_layers import GradientCheckpointingLayer  # noqa: E402
-from transformers.modeling_outputs import (  # noqa: E402
+from .transformer_patch.transformers_4573.configuration_utils import layer_type_validation as _transformers_layer_type_validation  # noqa: E402
+from .transformer_patch.transformers_4573.feature_extraction_utils import BatchFeature  # noqa: E402
+from .transformer_patch.transformers_4573.generation import GenerationMixin  # noqa: E402
+from .transformer_patch.transformers_4573.integrations import use_kernel_forward_from_hub  # noqa: E402
+from .transformer_patch.transformers_4573.modeling_flash_attention_utils import FlashAttentionKwargs  # noqa: E402
+from .transformer_patch.transformers_4573.modeling_layers import GradientCheckpointingLayer  # noqa: E402
+from .transformer_patch.transformers_4573.modeling_outputs import (  # noqa: E402
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     ModelOutput,
 )
-from transformers.modeling_rope_utils import (  # noqa: E402
+from .transformer_patch.transformers_4573.modeling_rope_utils import (  # noqa: E402
     ROPE_INIT_FUNCTIONS,
     dynamic_rope_update,
     rope_config_validation as _transformers_rope_config_validation,
 )
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel  # noqa: E402
-from transformers.models.mimi.configuration_mimi import MimiConfig  # noqa: E402
-from transformers.models.mimi.modeling_mimi import MimiModel  # noqa: E402
-from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack  # noqa: E402
-from transformers.utils import auto_docstring, can_return_tuple, logging  # noqa: E402
-from transformers.utils.deprecation import deprecate_kwarg  # noqa: E402
+from .transformer_patch.transformers_4573.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel  # noqa: E402
+from .transformer_patch.transformers_4573.models.mimi.configuration_mimi import MimiConfig  # noqa: E402
+from .transformer_patch.transformers_4573.models.mimi.modeling_mimi import MimiModel  # noqa: E402
+from .transformer_patch.transformers_4573.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack  # noqa: E402
+from .transformer_patch.transformers_4573.utils import auto_docstring, can_return_tuple, logging  # noqa: E402
+from .transformer_patch.transformers_4573.utils.deprecation import deprecate_kwarg  # noqa: E402
 try:  # noqa: E402
-    from transformers.utils.generic import merge_with_config_defaults as _merge_with_config_defaults  # noqa: E402
+    from .transformer_patch.transformers_4573.utils.generic import merge_with_config_defaults as _merge_with_config_defaults  # noqa: E402
 except ImportError:  # pragma: no cover - older transformers
     _merge_with_config_defaults = None
-from transformers.utils.generic import check_model_inputs as _transformers_check_model_inputs  # noqa: E402
-from transformers.utils.hub import cached_file  # noqa: E402
+from .transformer_patch.transformers_4573.utils.generic import check_model_inputs as _transformers_check_model_inputs  # noqa: E402
+from .transformer_patch.transformers_4573.utils.hub import cached_file  # noqa: E402
+
+from .transformer_patch.transformers_4573.cache_utils import Cache, DynamicCache  # noqa: E402
+from .transformer_patch.transformers_4573.masking_utils import (  # noqa: E402
+    create_causal_mask as _transformers_create_causal_mask,
+    create_sliding_window_causal_mask as _transformers_create_sliding_window_causal_mask,
+)
 
 
 def _compute_default_rope_parameters(config=None, device=None, seq_len=None, layer_type=None):

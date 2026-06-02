@@ -178,11 +178,24 @@ def _save_wavs(wavs: List[np.ndarray], sample_rate: int, output: str, overwrite:
     import numpy as np
     import torch
     import torchaudio
+    import wave
 
     paths = _safe_output_paths(output, len(wavs), overwrite=overwrite)
     for wav, path in zip(wavs, paths):
-        waveform = torch.from_numpy(np.asarray(wav, dtype=np.float32)).unsqueeze(0)
-        torchaudio.save(str(path), waveform, int(sample_rate))
+        array = np.asarray(wav, dtype=np.float32)
+        waveform = torch.from_numpy(array).unsqueeze(0)
+        try:
+            torchaudio.save(str(path), waveform, int(sample_rate))
+        except ImportError as exc:
+            if "TorchCodec" not in str(exc) and "torchcodec" not in str(exc):
+                raise
+            pcm = np.clip(array, -1.0, 1.0)
+            pcm16 = (pcm * 32767.0).astype("<i2")
+            with wave.open(str(path), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(int(sample_rate))
+                wav_file.writeframes(pcm16.tobytes())
     return paths
 
 

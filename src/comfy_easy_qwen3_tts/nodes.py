@@ -451,29 +451,33 @@ class _ComfyGenerationProgress:
             self.progress_bar.update_absolute(self.total, self.total)
 
 
-class _ComfyProgressStoppingCriteria:
-    def __init__(self, progress: _ComfyGenerationProgress):
-        self.progress = progress
-
-    def __call__(self, input_ids, scores, **kwargs):
-        self.progress.step()
-        return False
-
-
 def _with_comfy_generation_progress(gen_kwargs: dict[str, Any]) -> tuple[_ComfyGenerationProgress, dict[str, Any]]:
+    from qwen_tts.transformer_patch.transformers_4573.generation.stopping_criteria import (
+        StoppingCriteria,
+        StoppingCriteriaList,
+    )
+
+    class ComfyProgressStoppingCriteria(StoppingCriteria):
+        def __init__(self, progress: _ComfyGenerationProgress):
+            self.progress = progress
+
+        def __call__(self, input_ids, scores, **kwargs):
+            self.progress.step()
+            return torch.full((input_ids.shape[0],), False, device=input_ids.device, dtype=torch.bool)
+
     progress = _ComfyGenerationProgress(int(gen_kwargs.get("max_new_tokens", 2048)))
-    criteria = _ComfyProgressStoppingCriteria(progress)
+    criteria = ComfyProgressStoppingCriteria(progress)
     updated = dict(gen_kwargs)
     existing = updated.get("stopping_criteria")
     if existing is None:
-        updated["stopping_criteria"] = [criteria]
+        updated["stopping_criteria"] = StoppingCriteriaList([criteria])
     else:
-        try:
-            combined = type(existing)(existing)
-        except Exception:
-            combined = list(existing) if isinstance(existing, (list, tuple)) else [existing]
-        if not hasattr(combined, "append"):
-            combined = list(combined)
+        if isinstance(existing, StoppingCriteriaList):
+            combined = existing
+        elif isinstance(existing, (list, tuple)):
+            combined = StoppingCriteriaList(list(existing))
+        else:
+            combined = StoppingCriteriaList([existing])
         combined.append(criteria)
         updated["stopping_criteria"] = combined
     return progress, updated

@@ -22,6 +22,11 @@ from ...compat import (
 logger = logging.get_logger(__name__)
 
 
+class Qwen3TTSGenerationConfigCompatMixin:
+    def _get_non_default_generation_parameters(self):
+        return {}
+
+
 class Qwen3TTSSpeakerEncoderConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Qwen3TTSSpeakerEncoder`].
@@ -70,7 +75,7 @@ class Qwen3TTSSpeakerEncoderConfig(PretrainedConfig):
         self.sample_rate = sample_rate
 
 
-class Qwen3TTSTalkerCodePredictorConfig(PretrainedConfig):
+class Qwen3TTSTalkerCodePredictorConfig(Qwen3TTSGenerationConfigCompatMixin, PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Qwen3TTSTalkerCodePredictorModel`]. It is used to instantiate a
     Qwen3TTSTalkerCodePredictor model according to the specified arguments, defining the model architecture.
@@ -261,7 +266,7 @@ class Qwen3TTSTalkerCodePredictorConfig(PretrainedConfig):
         self.pad_token_id = pad_token_id
 
 
-class Qwen3TTSTalkerConfig(PretrainedConfig):
+class Qwen3TTSTalkerConfig(Qwen3TTSGenerationConfigCompatMixin, PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Qwen3TTSTalkerModel`]. It is used to instantiate a
     Qwen3TTSTalker model according to the specified arguments, defining the model architecture.
@@ -408,10 +413,7 @@ class Qwen3TTSTalkerConfig(PretrainedConfig):
         codec_language_id=None,
         **kwargs,
     ):
-        if pad_token_id is None:
-            pad_token_id = codec_pad_id
         super().__init__(
-            pad_token_id=pad_token_id,
             tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )
@@ -455,6 +457,7 @@ class Qwen3TTSTalkerConfig(PretrainedConfig):
         self.codec_think_bos_id = codec_think_bos_id
         self.codec_think_eos_id = codec_think_eos_id
         self.codec_pad_id = codec_pad_id
+        self.pad_token_id = pad_token_id
         self.codec_bos_id = codec_bos_id
         self.spk_id = spk_id
         self.spk_is_dialect = spk_is_dialect

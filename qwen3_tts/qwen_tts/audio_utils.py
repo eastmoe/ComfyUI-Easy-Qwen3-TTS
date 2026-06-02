@@ -1,6 +1,7 @@
 # coding=utf-8
 """Audio helpers backed by torch/torchaudio."""
 
+import wave
 from typing import BinaryIO, Optional, Tuple, Union
 
 import numpy as np
@@ -20,11 +21,36 @@ def _to_mono_float32_np(waveform: torch.Tensor) -> np.ndarray:
     return waveform.detach().cpu().to(torch.float32).numpy().astype(np.float32, copy=False)
 
 
+def _load_wav_with_stdlib(source: AudioSource) -> Tuple[np.ndarray, int]:
+    with wave.open(source, "rb") as wav_file:
+        sample_rate = int(wav_file.getframerate())
+        channels = int(wav_file.getnchannels())
+        sample_width = int(wav_file.getsampwidth())
+        frames = wav_file.readframes(wav_file.getnframes())
+
+    if sample_width == 1:
+        audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    elif sample_width == 2:
+        audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    elif sample_width == 4:
+        audio = np.frombuffer(frames, dtype="<i4").astype(np.float32) / 2147483648.0
+    else:
+        raise RuntimeError(f"Unsupported WAV sample width: {sample_width} bytes")
+
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+    return audio.astype(np.float32, copy=False), sample_rate
+
+
 def load_audio_mono_float32(source: AudioSource) -> Tuple[np.ndarray, int]:
     """Load audio with torchaudio and return mono float32 numpy waveform plus sample rate."""
     try:
         waveform, sample_rate = torchaudio.load(source, channels_first=True)
     except Exception as exc:
+        try:
+            return _load_wav_with_stdlib(source)
+        except Exception:
+            pass
         raise RuntimeError(
             "Unsupported audio format or failed to load audio with torchaudio. "
             "Please provide a format supported by the active torchaudio backend."

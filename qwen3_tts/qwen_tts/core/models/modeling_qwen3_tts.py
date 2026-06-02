@@ -49,6 +49,7 @@ from ...compat import (
     use_kernel_forward_from_hub,
 )
 from ...inference.qwen3_tts_tokenizer import Qwen3TTSTokenizer
+from ...transformer_patch import Qwen3TTSGenerationMixin
 from .configuration_qwen3_tts import (Qwen3TTSConfig,
                                       Qwen3TTSSpeakerEncoderConfig,
                                       Qwen3TTSTalkerCodePredictorConfig,
@@ -848,71 +849,6 @@ class Qwen3TTSTalkerCodePredictorOutputWithPast(ModelOutput):
     generation_steps: Optional[int] = None
 
 
-def _prepare_qwen3_tts_inputs_for_generation(
-    self,
-    input_ids: torch.LongTensor,
-    next_sequence_length: Optional[int] = None,
-    past_key_values: Optional[Cache] = None,
-    attention_mask: Optional[torch.LongTensor] = None,
-    inputs_embeds: Optional[torch.FloatTensor] = None,
-    is_first_iteration: bool = False,
-    **kwargs,
-):
-    """Keep Qwen3-TTS inputs_embeds prefill aligned with Transformers 5 generation."""
-    model_inputs = {}
-    input_device = input_ids.device if input_ids is not None else None
-
-    if inputs_embeds is not None and is_first_iteration:
-        if next_sequence_length is not None:
-            inputs_embeds = inputs_embeds[:, -next_sequence_length:, :]
-        model_inputs["input_ids"] = None
-        model_inputs["inputs_embeds"] = inputs_embeds.clone(memory_format=torch.contiguous_format)
-        sequence_length = inputs_embeds.shape[1]
-        input_device = inputs_embeds.device
-    else:
-        if input_ids is None:
-            raise ValueError("`input_ids` must be provided after the inputs_embeds prefill step.")
-        if next_sequence_length is not None:
-            input_ids = input_ids[:, -next_sequence_length:]
-        elif past_key_values is not None:
-            input_ids = input_ids[:, -1:]
-        model_inputs["input_ids"] = input_ids.clone(memory_format=torch.contiguous_format)
-        sequence_length = input_ids.shape[-1]
-        input_device = input_ids.device
-
-    if past_key_values is not None:
-        model_inputs["past_key_values"] = past_key_values
-
-    position_ids = kwargs.pop("position_ids", None)
-    if position_ids is not None:
-        if position_ids.shape[-1] != sequence_length:
-            position_ids = position_ids[..., -sequence_length:].clone(memory_format=torch.contiguous_format)
-        model_inputs["position_ids"] = position_ids
-
-    if attention_mask is not None:
-        model_inputs["attention_mask"] = attention_mask
-
-    cache_position = kwargs.pop("cache_position", None)
-    if cache_position is None and input_device is not None:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        cache_position = torch.arange(
-            past_seen_tokens,
-            past_seen_tokens + sequence_length,
-            device=input_device,
-        )
-    elif cache_position is not None and cache_position.shape[0] != sequence_length:
-        cache_position = cache_position[-sequence_length:]
-    if cache_position is not None:
-        model_inputs["cache_position"] = cache_position
-
-    kwargs_to_avoid_forwarding = {"labels", "next_sequence_length"}
-    for key, value in kwargs.items():
-        if key not in model_inputs and key not in kwargs_to_avoid_forwarding:
-            model_inputs[key] = value
-
-    return model_inputs
-
-
 class Qwen3TTSTalkerTextMLP(nn.Module):
     def __init__(self, config, intermediate_size=None):
         super().__init__()
@@ -1227,7 +1163,7 @@ class Qwen3TTSTalkerCodePredictorModel(Qwen3TTSPreTrainedModel):
         )
 
 
-class Qwen3TTSTalkerCodePredictorModelForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin):
+class Qwen3TTSTalkerCodePredictorModelForConditionalGeneration(Qwen3TTSPreTrainedModel, Qwen3TTSGenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
     _pp_plan = {"lm_head": (["hidden_states"], ["logits"])}
@@ -1267,8 +1203,6 @@ class Qwen3TTSTalkerCodePredictorModelForConditionalGeneration(Qwen3TTSPreTraine
 
     def get_decoder(self):
         return self.model
-
-    prepare_inputs_for_generation = _prepare_qwen3_tts_inputs_for_generation
 
     @can_return_tuple
     def forward(
@@ -1585,7 +1519,7 @@ class Qwen3TTSTalkerModel(Qwen3TTSTalkerTextPreTrainedModel):
         )
 
 
-class Qwen3TTSTalkerForConditionalGeneration(Qwen3TTSTalkerTextPreTrainedModel, GenerationMixin):
+class Qwen3TTSTalkerForConditionalGeneration(Qwen3TTSTalkerTextPreTrainedModel, Qwen3TTSGenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
     _pp_plan = {"lm_head": (["hidden_states"], ["logits"])}
@@ -1632,8 +1566,6 @@ class Qwen3TTSTalkerForConditionalGeneration(Qwen3TTSTalkerTextPreTrainedModel, 
 
     def get_decoder(self):
         return self.model
-
-    prepare_inputs_for_generation = _prepare_qwen3_tts_inputs_for_generation
 
     @can_return_tuple
     def forward(
