@@ -2044,6 +2044,7 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
         repetition_penalty: float = 1.05,
         **kwargs,
     ):
+        generation_kwargs = dict(kwargs)
         talker_kwargs = {
             "max_new_tokens": max_new_tokens,
             "min_new_tokens": 2,
@@ -2064,9 +2065,10 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
                 for i in range(self.config.talker_config.vocab_size - 1024, self.config.talker_config.vocab_size)
                 if i not in (self.config.talker_config.codec_eos_token_id,)
             ],
-            "output_hidden_states": getattr(kwargs, "output_hidden_states", True),
-            "return_dict_in_generate": getattr(kwargs, "return_dict_in_generate", True)
+            "output_hidden_states": generation_kwargs.pop("output_hidden_states", True),
+            "return_dict_in_generate": generation_kwargs.pop("return_dict_in_generate", True)
         }
+        talker_kwargs.update(generation_kwargs)
         
         talker_input_embeds = [[] for _ in range(len(input_ids))]
 

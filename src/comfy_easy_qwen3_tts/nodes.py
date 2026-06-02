@@ -19,6 +19,13 @@ import numpy as np
 import torch
 
 try:
+    import comfy.model_management as comfy_model_management
+    import comfy.utils as comfy_utils
+except ImportError:
+    comfy_model_management = None
+    comfy_utils = None
+
+try:
     import folder_paths
 except ImportError:
     folder_paths = None
@@ -413,6 +420,63 @@ def _generation_kwargs(
         "subtalker_temperature": float(subtalker_temperature),
         "max_new_tokens": int(max_new_tokens),
     }
+
+
+def _throw_if_interrupted() -> None:
+    if comfy_model_management is not None and hasattr(comfy_model_management, "throw_exception_if_processing_interrupted"):
+        comfy_model_management.throw_exception_if_processing_interrupted()
+
+
+class _ComfyGenerationProgress:
+    def __init__(self, max_new_tokens: int):
+        self.total = max(1, int(max_new_tokens or 1))
+        self.current = 0
+        self.progress_bar = comfy_utils.ProgressBar(self.total) if comfy_utils is not None else None
+
+    def begin(self) -> None:
+        _throw_if_interrupted()
+        if self.progress_bar is not None:
+            self.progress_bar.update_absolute(0, self.total)
+
+    def step(self) -> None:
+        _throw_if_interrupted()
+        if self.current < self.total:
+            self.current += 1
+        if self.progress_bar is not None:
+            self.progress_bar.update_absolute(self.current, self.total)
+
+    def finish(self) -> None:
+        _throw_if_interrupted()
+        if self.progress_bar is not None:
+            self.progress_bar.update_absolute(self.total, self.total)
+
+
+class _ComfyProgressStoppingCriteria:
+    def __init__(self, progress: _ComfyGenerationProgress):
+        self.progress = progress
+
+    def __call__(self, input_ids, scores, **kwargs):
+        self.progress.step()
+        return False
+
+
+def _with_comfy_generation_progress(gen_kwargs: dict[str, Any]) -> tuple[_ComfyGenerationProgress, dict[str, Any]]:
+    progress = _ComfyGenerationProgress(int(gen_kwargs.get("max_new_tokens", 2048)))
+    criteria = _ComfyProgressStoppingCriteria(progress)
+    updated = dict(gen_kwargs)
+    existing = updated.get("stopping_criteria")
+    if existing is None:
+        updated["stopping_criteria"] = [criteria]
+    else:
+        try:
+            combined = type(existing)(existing)
+        except Exception:
+            combined = list(existing) if isinstance(existing, (list, tuple)) else [existing]
+        if not hasattr(combined, "append"):
+            combined = list(combined)
+        combined.append(criteria)
+        updated["stopping_criteria"] = combined
+    return progress, updated
 
 
 def _audio_from_wavs(wavs: list[np.ndarray], sample_rate: int) -> dict[str, Any]:
@@ -833,7 +897,8 @@ class ComfyEasyQwen3TTSCustomVoice(_Qwen3TTSInferBase):
     def generate(self, qwen3_tts_model: Qwen3TTSHandle, text: str, language: str, speaker: str, instruct: str, non_streaming_mode: bool, **kwargs):
         _set_seed(int(kwargs.pop("seed", -1)))
         unload = bool(kwargs.pop("unload_model_after_generation", False))
-        gen_kwargs = _generation_kwargs(**kwargs)
+        progress, gen_kwargs = _with_comfy_generation_progress(_generation_kwargs(**kwargs))
+        progress.begin()
         wavs, sample_rate = qwen3_tts_model.model.generate_custom_voice(
             text=text,
             language=language or "Auto",
@@ -842,6 +907,7 @@ class ComfyEasyQwen3TTSCustomVoice(_Qwen3TTSInferBase):
             non_streaming_mode=bool(non_streaming_mode),
             **gen_kwargs,
         )
+        progress.finish()
         return self._finish(qwen3_tts_model, wavs, sample_rate, unload)
 
 
@@ -863,7 +929,8 @@ class ComfyEasyQwen3TTSVoiceDesign(_Qwen3TTSInferBase):
     def generate(self, qwen3_tts_model: Qwen3TTSHandle, text: str, language: str, instruct: str, non_streaming_mode: bool, **kwargs):
         _set_seed(int(kwargs.pop("seed", -1)))
         unload = bool(kwargs.pop("unload_model_after_generation", False))
-        gen_kwargs = _generation_kwargs(**kwargs)
+        progress, gen_kwargs = _with_comfy_generation_progress(_generation_kwargs(**kwargs))
+        progress.begin()
         wavs, sample_rate = qwen3_tts_model.model.generate_voice_design(
             text=text,
             language=language or "Auto",
@@ -871,6 +938,7 @@ class ComfyEasyQwen3TTSVoiceDesign(_Qwen3TTSInferBase):
             non_streaming_mode=bool(non_streaming_mode),
             **gen_kwargs,
         )
+        progress.finish()
         return self._finish(qwen3_tts_model, wavs, sample_rate, unload)
 
 
@@ -907,7 +975,8 @@ class ComfyEasyQwen3TTSVoiceClone(_Qwen3TTSInferBase):
         _set_seed(int(kwargs.pop("seed", -1)))
         unload = bool(kwargs.pop("unload_model_after_generation", False))
         ref_waveform, ref_sample_rate = _select_comfy_audio(ref_audio, int(ref_audio_batch_index))
-        gen_kwargs = _generation_kwargs(**kwargs)
+        progress, gen_kwargs = _with_comfy_generation_progress(_generation_kwargs(**kwargs))
+        progress.begin()
         wavs, sample_rate = qwen3_tts_model.model.generate_voice_clone(
             text=text,
             language=language or "Auto",
@@ -917,6 +986,7 @@ class ComfyEasyQwen3TTSVoiceClone(_Qwen3TTSInferBase):
             non_streaming_mode=bool(non_streaming_mode),
             **gen_kwargs,
         )
+        progress.finish()
         return self._finish(qwen3_tts_model, wavs, sample_rate, unload)
 
 
