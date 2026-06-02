@@ -211,6 +211,7 @@ class Qwen3TTSTalkerCodePredictorConfig(PretrainedConfig):
         layer_types=None,
         attention_dropout=0,
         num_code_groups=32,
+        pad_token_id=None,
         **kwargs,
     ):
         super().__init__(
@@ -257,6 +258,7 @@ class Qwen3TTSTalkerCodePredictorConfig(PretrainedConfig):
             ]
         layer_type_validation(self.layer_types)
         self.num_code_groups = num_code_groups
+        self.pad_token_id = pad_token_id
 
 
 class Qwen3TTSTalkerConfig(PretrainedConfig):
@@ -399,13 +401,17 @@ class Qwen3TTSTalkerConfig(PretrainedConfig):
         codec_think_bos_id=4204,
         codec_think_eos_id=4205,
         codec_pad_id=4196,
+        pad_token_id=None,
         codec_bos_id=4197,
         spk_id=None,
         spk_is_dialect=None,
         codec_language_id=None,
         **kwargs,
     ):
+        if pad_token_id is None:
+            pad_token_id = codec_pad_id
         super().__init__(
+            pad_token_id=pad_token_id,
             tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )
