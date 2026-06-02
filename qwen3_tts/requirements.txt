@@ -1,0 +1,10 @@
+torch
+torchaudio
+transformers==4.57.3
+huggingface_hub
+librosa
+numpy
+soundfile
+sox
+onnxruntime
+einops

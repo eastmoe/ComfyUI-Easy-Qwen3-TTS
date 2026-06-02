@@ -477,8 +477,8 @@ class Qwen3TTSPreTrainedModel(PreTrainedModel):
     _supports_attention_backend = True
 
     def _init_weights(self, module):
-        # important: this ported version of Qwen2.5OmniThinker isn't meant for training from scratch - only
-        # inference and fine-tuning - so the proper init weights code has been removed
+        # This port keeps loading/runtime initialization only; full random
+        # initialization from scratch is outside the inference package.
         std = self.config.initializer_range if hasattr(self.config, "initializer_range") else 0.02
 
         if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv3d, nn.ConvTranspose1d)):
@@ -1193,58 +1193,6 @@ class Qwen3TTSTalkerCodePredictorModelForConditionalGeneration(Qwen3TTSPreTraine
 
     def get_decoder(self):
         return self.model
-    
-    def forward_finetune(
-        self,
-        input_ids=None,
-        attention_mask=None,
-        position_ids=None,
-        past_key_values=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        cache_position=None,
-        generation_steps=None,
-        **kwargs,
-    ) -> CausalLMOutputWithPast:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-
-        inputs_embeds = self.small_to_mtp_projection(inputs_embeds)
-
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-        outputs: BaseModelOutputWithPast = self.model(
-            input_ids=None,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            cache_position=cache_position,
-            **kwargs,
-        )
-
-        hidden_states = outputs.last_hidden_state
-        
-        logits = []
-        for i in range(1, self.config.num_code_groups):
-            logits.append(self.lm_head[i-1](hidden_states[:, i]))
-        logits = torch.stack(logits, dim=1)
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
-
-        return Qwen3TTSTalkerCodePredictorOutputWithPast(
-            loss=loss,
-            logits=logits
-        )
 
     @can_return_tuple
     def forward(
@@ -1608,29 +1556,6 @@ class Qwen3TTSTalkerForConditionalGeneration(Qwen3TTSTalkerTextPreTrainedModel, 
 
     def get_decoder(self):
         return self.model
-    
-    def forward_sub_talker_finetune(self, codec_ids, talker_hidden_states):
-        assert len(codec_ids.shape) == 2
-        assert len(talker_hidden_states.shape) == 2
-        assert codec_ids.shape[0] == talker_hidden_states.shape[0]
-        assert talker_hidden_states.shape[1] == self.config.hidden_size
-        assert codec_ids.shape[1] == self.config.num_code_groups
-
-        sub_talker_inputs_embeds = [talker_hidden_states.unsqueeze(1)]
-
-        for i in range(self.config.num_code_groups - 1):
-            if i == 0:
-                sub_talker_inputs_embeds.append(self.get_input_embeddings()(codec_ids[:, :1]))
-            else:
-                sub_talker_inputs_embeds.append(self.code_predictor.get_input_embeddings()[i-1](codec_ids[:, i:i+1]))
-        sub_talker_inputs_embeds = torch.cat(sub_talker_inputs_embeds, dim=1)
-        
-        sub_talker_outputs = self.code_predictor.forward_finetune(inputs_embeds=sub_talker_inputs_embeds,
-                                                                 labels=codec_ids[:, 1:])
-        
-        sub_talker_logits = sub_talker_outputs.logits
-        sub_talker_loss = sub_talker_outputs.loss
-        return sub_talker_logits, sub_talker_loss
 
     @can_return_tuple
     def forward(

@@ -20,11 +20,12 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Alibaba Qwen Team" }]
 
 dependencies = [
-  "transformers==4.57.3",
-  "accelerate==1.12.0",
-  "gradio",
-  "librosa",
+  "torch",
   "torchaudio",
+  "transformers==4.57.3",
+  "huggingface_hub",
+  "librosa",
+  "numpy",
   "soundfile",
   "sox",
   "onnxruntime",
@@ -34,9 +35,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/Qwen/Qwen3-TTS"
 Repository = "https://github.com/Qwen/Qwen3-TTS"
-
-[project.scripts]
-qwen-tts-demo = "qwen_tts.cli.demo:main"
 
 [tool.setuptools]
 packages = { find = { where = ["."] , include = ["qwen_tts*"] } }

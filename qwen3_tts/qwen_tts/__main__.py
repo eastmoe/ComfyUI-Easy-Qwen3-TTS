@@ -16,8 +16,7 @@
 def main():
     print(
         "qwen_tts package.\n"
-        "Use CLI entrypoints:\n"
-        "  - qwen-tts-demo\n"
+        "Import Qwen3TTSModel or Qwen3TTSTokenizer from qwen_tts to run inference.\n"
     )
 
 if __name__ == "__main__":
