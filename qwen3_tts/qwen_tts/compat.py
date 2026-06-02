@@ -52,8 +52,22 @@ from transformers.models.mimi.modeling_mimi import MimiModel  # noqa: E402
 from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack  # noqa: E402
 from transformers.utils import auto_docstring, can_return_tuple, logging  # noqa: E402
 from transformers.utils.deprecation import deprecate_kwarg  # noqa: E402
-from transformers.utils.generic import check_model_inputs  # noqa: E402
+from transformers.utils.generic import check_model_inputs as _transformers_check_model_inputs  # noqa: E402
 from transformers.utils.hub import cached_file  # noqa: E402
+
+
+def check_model_inputs(func=None):
+    """Accept both decorator styles used across transformers releases."""
+    if func is not None:
+        try:
+            return _transformers_check_model_inputs(func)
+        except TypeError:
+            return _transformers_check_model_inputs()(func)
+
+    try:
+        return _transformers_check_model_inputs()
+    except TypeError:
+        return _transformers_check_model_inputs
 
 __all__ = [
     "ALL_ATTENTION_FUNCTIONS",
