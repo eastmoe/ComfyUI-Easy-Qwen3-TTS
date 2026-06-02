@@ -14,10 +14,7 @@
 # limitations under the License.
 """Qwen3TTSTokenizerV2 model configuration"""
 
-from transformers.configuration_utils import PretrainedConfig
-from transformers.utils import logging
-
-from transformers import MimiConfig
+from ...compat import MimiConfig, PretrainedConfig, logging
 
 
 logger = logging.get_logger(__name__)

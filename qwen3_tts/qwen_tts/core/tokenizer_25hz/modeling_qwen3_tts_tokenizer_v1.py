@@ -23,12 +23,17 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 from torch.nn import functional as F
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
-from transformers.utils import ModelOutput, auto_docstring, logging
-from transformers.utils.hub import cached_file
 
 from torch.nn.utils.rnn import pad_sequence
 
+from ...compat import (
+    ALL_ATTENTION_FUNCTIONS,
+    ModelOutput,
+    PreTrainedModel,
+    auto_docstring,
+    cached_file,
+    logging,
+)
 from .vq.whisper_encoder import get_mel_audio, get_T_after_cnn
 from .vq.speech_vq import WhisperEncoderVQ, XVectorExtractor
 

@@ -12,8 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from transformers.feature_extraction_utils import BatchFeature
-from transformers.processing_utils import ProcessingKwargs, ProcessorMixin
+from ...compat import BatchFeature, ProcessingKwargs, ProcessorMixin
 
 
 class Qwen3TTSProcessorKwargs(ProcessingKwargs, total=False):

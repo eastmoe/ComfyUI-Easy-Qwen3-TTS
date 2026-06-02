@@ -23,24 +23,30 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 from torch.nn import functional as F
-from transformers import MimiConfig, MimiModel
-from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, DynamicCache
-from transformers.integrations import use_kernel_forward_from_hub
-from transformers.masking_utils import (
+
+from ...compat import (
+    ACT2FN,
+    ALL_ATTENTION_FUNCTIONS,
+    ROPE_INIT_FUNCTIONS,
+    BaseModelOutputWithPast,
+    Cache,
+    DynamicCache,
+    FlashAttentionKwargs,
+    GradientCheckpointingLayer,
+    MimiConfig,
+    MimiModel,
+    ModelOutput,
+    PreTrainedModel,
+    Unpack,
+    auto_docstring,
+    check_model_inputs,
     create_causal_mask,
     create_sliding_window_causal_mask,
+    deprecate_kwarg,
+    dynamic_rope_update,
+    logging,
+    use_kernel_forward_from_hub,
 )
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-from transformers.modeling_layers import GradientCheckpointingLayer
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
-from transformers.processing_utils import Unpack
-from transformers.utils import ModelOutput, auto_docstring, logging
-from transformers.utils.deprecation import deprecate_kwarg
-from transformers.utils.generic import check_model_inputs
-
 from .configuration_qwen3_tts_tokenizer_v2 import (
     Qwen3TTSTokenizerV2Config,
     Qwen3TTSTokenizerV2DecoderConfig,
