@@ -2,6 +2,7 @@
 """Compatibility helpers for dependency APIs that move between versions."""
 
 from importlib.metadata import PackageNotFoundError, version
+from inspect import Parameter, signature
 
 from packaging.version import Version
 
@@ -35,8 +36,8 @@ from transformers.feature_extraction_utils import BatchFeature  # noqa: E402
 from transformers.generation import GenerationMixin  # noqa: E402
 from transformers.integrations import use_kernel_forward_from_hub  # noqa: E402
 from transformers.masking_utils import (  # noqa: E402
-    create_causal_mask,
-    create_sliding_window_causal_mask,
+    create_causal_mask as _transformers_create_causal_mask,
+    create_sliding_window_causal_mask as _transformers_create_sliding_window_causal_mask,
 )
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs  # noqa: E402
 from transformers.modeling_layers import GradientCheckpointingLayer  # noqa: E402
@@ -85,6 +86,27 @@ def _compute_default_rope_parameters(config=None, device=None, seq_len=None, lay
 
 
 ROPE_INIT_FUNCTIONS.setdefault("default", _compute_default_rope_parameters)
+
+
+def _call_mask_function(mask_function, **kwargs):
+    parameters = signature(mask_function).parameters
+    accepts_kwargs = any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values())
+    if "inputs_embeds" in parameters and "input_embeds" in kwargs and "inputs_embeds" not in kwargs:
+        kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
+    elif "input_embeds" in parameters and "inputs_embeds" in kwargs and "input_embeds" not in kwargs:
+        kwargs["input_embeds"] = kwargs.pop("inputs_embeds")
+
+    if not accepts_kwargs:
+        kwargs = {key: value for key, value in kwargs.items() if key in parameters}
+    return mask_function(**kwargs)
+
+
+def create_causal_mask(**kwargs):
+    return _call_mask_function(_transformers_create_causal_mask, **kwargs)
+
+
+def create_sliding_window_causal_mask(**kwargs):
+    return _call_mask_function(_transformers_create_sliding_window_causal_mask, **kwargs)
 
 
 def check_model_inputs(func=None):
