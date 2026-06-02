@@ -47,8 +47,8 @@
     "max_new_tokens": {"display_name": "最大新 Token", "tooltip": "生成的最大 codec token 数量。"},
     "unload_model_after_generation": {"display_name": "生成后清理显存", "tooltip": "生成后调用 gc 与 CUDA cache 清理；不会移除加载节点输出对象。"},
     "ref_audio": {"display_name": "参考音频", "tooltip": "用于克隆音色的 ComfyUI AUDIO 输入。"},
-    "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。关闭仅说话人向量模式时必填。"},
-    "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；开启后可不填写参考文本。"},
+    "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。留空时自动使用仅说话人向量模式。"},
+    "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；关闭后会使用参考文本进入 ICL 模式。"},
     "ref_audio_batch_index": {"display_name": "参考音频批次", "tooltip": "当 AUDIO 含多个 batch 时选择使用哪一个。"}
   },
   "ui": {
@@ -118,8 +118,8 @@
       "ref_audio": {"display_name": "参考音频", "tooltip": "用于克隆音色的 ComfyUI AUDIO 输入。"},
       "text": {"display_name": "合成文本", "tooltip": "需要合成的文本。"},
       "language": {"display_name": "语言", "tooltip": "语言名称，例如 Chinese、English；Auto 由模型自动处理。"},
-      "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。关闭仅说话人向量模式时必填。"},
-      "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；开启后可不填写参考文本。"},
+      "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。留空时自动使用仅说话人向量模式。"},
+      "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；关闭后会使用参考文本进入 ICL 模式。"},
       "ref_audio_batch_index": {"display_name": "参考音频批次", "tooltip": "当 AUDIO 含多个 batch 时选择使用哪一个。"},
       "non_streaming_mode": {"display_name": "非流式文本", "tooltip": "使用非流式文本输入。"}
     }

@@ -17,6 +17,8 @@ eastmoe -> Comfy-Easy-Qwen3-TTS
 - `Qwen3-TTS 音色设计合成`：对应 `generate_voice_design`，需要 Voice Design 模型。
 - `Qwen3-TTS 音色克隆合成`：对应 `generate_voice_clone`，需要 Base 模型和 ComfyUI `AUDIO` 参考音频。
 
+音色克隆节点默认使用“仅说话人向量”模式，只需要参考音频即可克隆音色。若关闭该开关，节点会进入 ICL 模式，此时需要填写参考音频对应的 `参考文本`；如果旧工作流中开关为关闭但参考文本为空，节点会自动回退到仅说话人向量模式，避免底层模型因缺少 `ref_text` 报错。
+
 ## 模型目录
 
 默认模型根目录为：

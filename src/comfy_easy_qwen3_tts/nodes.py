@@ -852,6 +852,19 @@ def common_generation_inputs() -> dict[str, Any]:
     }
 
 
+def _voice_clone_reference_mode(ref_text: str, x_vector_only_mode: bool) -> tuple[str | None, bool, bool]:
+    normalized_ref_text = (ref_text or "").strip()
+    requested_x_vector_only = bool(x_vector_only_mode)
+    if normalized_ref_text:
+        return normalized_ref_text, requested_x_vector_only, False
+    if not requested_x_vector_only:
+        print(
+            "[Comfy-Easy-Qwen3-TTS] ref_text is empty; using x_vector_only_mode=True for voice clone.",
+            flush=True,
+        )
+    return None, True, not requested_x_vector_only
+
+
 class _Qwen3TTSInferBase:
     RETURN_TYPES = ("AUDIO", "STRING")
     RETURN_NAMES = ("音频", "信息")
@@ -864,7 +877,14 @@ class _Qwen3TTSInferBase:
             return random.random()
         return None
 
-    def _finish(self, handle: Qwen3TTSHandle, wavs: list[np.ndarray], sample_rate: int, unload_model_after_generation: bool):
+    def _finish(
+        self,
+        handle: Qwen3TTSHandle,
+        wavs: list[np.ndarray],
+        sample_rate: int,
+        unload_model_after_generation: bool,
+        extra_info: dict[str, Any] | None = None,
+    ):
         audio = _audio_from_wavs(wavs, sample_rate)
         info = {
             "sample_rate": int(sample_rate),
@@ -873,6 +893,8 @@ class _Qwen3TTSInferBase:
             "model_mode": handle.model_mode,
             "model_path": handle.model_path,
         }
+        if extra_info:
+            info.update(extra_info)
         if unload_model_after_generation:
             _cleanup_memory()
         return (audio, json.dumps(info, ensure_ascii=False, indent=2))
@@ -950,8 +972,8 @@ class ComfyEasyQwen3TTSVoiceClone(_Qwen3TTSInferBase):
             "ref_audio": ("AUDIO", ui("voice_clone.ref_audio", "参考音频", "用于克隆音色的 ComfyUI AUDIO 输入。")),
             "text": ("STRING", ui("voice_clone.text", "合成文本", "需要合成的文本。", default="She said she would be here by noon.", multiline=True)),
             "language": ("STRING", ui("voice_clone.language", "语言", "语言名称，例如 Chinese、English；Auto 由模型自动处理。", default="English")),
-            "ref_text": ("STRING", ui("voice_clone.ref_text", "参考文本", "参考音频对应文本。关闭仅说话人向量模式时必填。", default="", multiline=True)),
-            "x_vector_only_mode": ("BOOLEAN", ui("voice_clone.x_vector_only_mode", "仅说话人向量", "只使用说话人向量克隆音色；开启后可不填写参考文本。", default=False)),
+            "ref_text": ("STRING", ui("voice_clone.ref_text", "参考文本", "参考音频对应文本。留空时自动使用仅说话人向量模式。", default="", multiline=True)),
+            "x_vector_only_mode": ("BOOLEAN", ui("voice_clone.x_vector_only_mode", "仅说话人向量", "只使用说话人向量克隆音色；关闭后会使用参考文本进入 ICL 模式。", default=True)),
             "ref_audio_batch_index": ("INT", ui("voice_clone.ref_audio_batch_index", "参考音频批次", "当 AUDIO 含多个 batch 时选择使用哪一个。", default=0, min=0, max=4096, step=1)),
             "non_streaming_mode": ("BOOLEAN", ui("voice_clone.non_streaming_mode", "非流式文本", "使用非流式文本输入。", default=False)),
         }
@@ -975,19 +997,31 @@ class ComfyEasyQwen3TTSVoiceClone(_Qwen3TTSInferBase):
         _set_seed(int(kwargs.pop("seed", -1)))
         unload = bool(kwargs.pop("unload_model_after_generation", False))
         ref_waveform, ref_sample_rate = _select_comfy_audio(ref_audio, int(ref_audio_batch_index))
+        effective_ref_text, effective_x_vector_only_mode, auto_x_vector_only_mode = _voice_clone_reference_mode(ref_text, x_vector_only_mode)
         progress, gen_kwargs = _with_comfy_generation_progress(_generation_kwargs(**kwargs))
         progress.begin()
         wavs, sample_rate = qwen3_tts_model.model.generate_voice_clone(
             text=text,
             language=language or "Auto",
             ref_audio=(ref_waveform, ref_sample_rate),
-            ref_text=ref_text or None,
-            x_vector_only_mode=bool(x_vector_only_mode),
+            ref_text=effective_ref_text,
+            x_vector_only_mode=effective_x_vector_only_mode,
             non_streaming_mode=bool(non_streaming_mode),
             **gen_kwargs,
         )
         progress.finish()
-        return self._finish(qwen3_tts_model, wavs, sample_rate, unload)
+        return self._finish(
+            qwen3_tts_model,
+            wavs,
+            sample_rate,
+            unload,
+            {
+                "voice_clone_mode": "x_vector_only" if effective_x_vector_only_mode else "icl",
+                "x_vector_only_mode": effective_x_vector_only_mode,
+                "ref_text_provided": effective_ref_text is not None,
+                "auto_x_vector_only_mode": auto_x_vector_only_mode,
+            },
+        )
 
 
 NODE_CLASS_MAPPINGS = {
