@@ -1,0 +1,132 @@
+{
+  "category": "eastmoe/Comfy-Easy-Qwen3-TTS",
+  "node_display_names": {
+    "ComfyEasyQwen3TTSLoadModel": "Qwen3-TTS 加载模型",
+    "ComfyEasyQwen3TTSCustomVoice": "Qwen3-TTS 预置音色合成",
+    "ComfyEasyQwen3TTSVoiceDesign": "Qwen3-TTS 音色设计合成",
+    "ComfyEasyQwen3TTSVoiceClone": "Qwen3-TTS 音色克隆合成"
+  },
+  "input_labels": {
+    "model_mode": {"display_name": "模型模式", "tooltip": "选择要加载的 Qwen3-TTS 推理模型类型。"},
+    "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写绝对路径或 Hugging Face 仓库 ID。"},
+    "speech_tokenizer_dir": {"display_name": "语音 Tokenizer 目录", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts/speech-tokenizer。若主模型缺少 speech_tokenizer 子目录，会尝试创建链接。"},
+    "device_map": {"display_name": "计算设备", "tooltip": "传给 from_pretrained 的 device_map。"},
+    "precision": {"display_name": "计算精度", "tooltip": "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。"},
+    "attn_implementation": {"display_name": "注意力实现", "tooltip": "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。"},
+    "local_files_only": {"display_name": "仅使用本地文件", "tooltip": "禁止 Transformers 从网络下载缺失文件。"},
+    "allow_repo_id_fallback": {"display_name": "允许仓库回退", "tooltip": "auto 目录不存在且未启用仅本地时，回退到官方 Qwen 仓库 ID。"},
+    "link_dependencies": {"display_name": "链接依赖模型", "tooltip": "当主模型目录缺少 speech_tokenizer 时，将独立依赖目录链接或复制到主模型目录。"},
+    "low_cpu_mem_usage": {"display_name": "低 CPU 内存加载", "tooltip": "传给 Transformers 的 low_cpu_mem_usage。"},
+    "use_safetensors": {"display_name": "使用 Safetensors", "tooltip": "优先加载 safetensors 权重。"},
+    "trust_remote_code": {"display_name": "信任远程代码", "tooltip": "传给 Transformers 的 trust_remote_code。通常本插件不需要开启。"},
+    "reload_model": {"display_name": "重新加载", "tooltip": "忽略插件缓存并重新实例化模型。"},
+    "qwen3_tts_model": {"display_name": "Qwen3-TTS 模型", "tooltip": "加载模型节点输出的 Qwen3-TTS 模型。"},
+    "text": {"display_name": "合成文本", "tooltip": "需要合成的文本。"},
+    "language": {"display_name": "语言", "tooltip": "语言名称，例如 Chinese、English；Auto 由模型自动处理。"},
+    "speaker": {"display_name": "说话人", "tooltip": "Custom Voice 模型支持的说话人名称，例如 Vivian。"},
+    "instruct": {"display_name": "指令", "tooltip": "风格、情绪或音色设计指令。"},
+    "non_streaming_mode": {"display_name": "非流式文本", "tooltip": "使用非流式文本输入。"},
+    "seed": {"display_name": "随机种子", "tooltip": "-1 表示每次随机；非负数会固定 numpy/torch 随机种子。"},
+    "do_sample": {"display_name": "启用采样", "tooltip": "开启采样生成。"},
+    "top_k": {"display_name": "Top K", "tooltip": "Top-k 采样参数。"},
+    "top_p": {"display_name": "Top P", "tooltip": "Top-p 采样参数。"},
+    "temperature": {"display_name": "温度", "tooltip": "采样温度，越高越随机。"},
+    "repetition_penalty": {"display_name": "重复惩罚", "tooltip": "降低重复 token/code 的惩罚系数。"},
+    "subtalker_dosample": {"display_name": "Subtalker 采样", "tooltip": "启用 subtalker 采样。"},
+    "subtalker_top_k": {"display_name": "Subtalker Top K", "tooltip": "Subtalker top-k 采样参数。"},
+    "subtalker_top_p": {"display_name": "Subtalker Top P", "tooltip": "Subtalker top-p 采样参数。"},
+    "subtalker_temperature": {"display_name": "Subtalker 温度", "tooltip": "Subtalker 采样温度。"},
+    "max_new_tokens": {"display_name": "最大新 Token", "tooltip": "生成的最大 codec token 数量。"},
+    "unload_model_after_generation": {"display_name": "生成后清理显存", "tooltip": "生成后调用 gc 与 CUDA cache 清理；不会移除加载节点输出对象。"},
+    "ref_audio": {"display_name": "参考音频", "tooltip": "用于克隆音色的 ComfyUI AUDIO 输入。"},
+    "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。关闭仅说话人向量模式时必填。"},
+    "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；开启后可不填写参考文本。"},
+    "ref_audio_batch_index": {"display_name": "参考音频批次", "tooltip": "当 AUDIO 含多个 batch 时选择使用哪一个。"}
+  },
+  "ui": {
+    "load": {
+      "model_mode": {"display_name": "模型模式", "tooltip": "选择要加载的 Qwen3-TTS 推理模型类型。"},
+      "model_path": {"display_name": "模型路径", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts 下对应模式的子目录；也可填写绝对路径或 Hugging Face 仓库 ID。"},
+      "speech_tokenizer_dir": {"display_name": "语音 Tokenizer 目录", "tooltip": "auto 使用 ComfyUI/models/qwen3-tts/speech-tokenizer。若主模型缺少 speech_tokenizer 子目录，会尝试创建链接。"},
+      "device_map": {"display_name": "计算设备", "tooltip": "传给 from_pretrained 的 device_map。"},
+      "precision": {"display_name": "计算精度", "tooltip": "选择模型加载与推理计算精度。auto 使用 Transformers 默认行为。"},
+      "attn_implementation": {"display_name": "注意力实现", "tooltip": "auto 不显式传入；可选择 flash_attention_2、sdpa 或 eager。"},
+      "local_files_only": {"display_name": "仅使用本地文件", "tooltip": "禁止 Transformers 从网络下载缺失文件。"},
+      "allow_repo_id_fallback": {"display_name": "允许仓库回退", "tooltip": "auto 目录不存在且未启用仅本地时，回退到官方 Qwen 仓库 ID。"},
+      "link_dependencies": {"display_name": "链接依赖模型", "tooltip": "当主模型目录缺少 speech_tokenizer 时，将独立依赖目录链接或复制到主模型目录。"},
+      "low_cpu_mem_usage": {"display_name": "低 CPU 内存加载", "tooltip": "传给 Transformers 的 low_cpu_mem_usage。"},
+      "use_safetensors": {"display_name": "使用 Safetensors", "tooltip": "优先加载 safetensors 权重。"},
+      "trust_remote_code": {"display_name": "信任远程代码", "tooltip": "传给 Transformers 的 trust_remote_code。通常本插件不需要开启。"},
+      "reload_model": {"display_name": "重新加载", "tooltip": "忽略插件缓存并重新实例化模型。"}
+    },
+    "generation": {
+      "seed": {"display_name": "随机种子", "tooltip": "-1 表示每次随机；非负数会固定 numpy/torch 随机种子。"},
+      "do_sample": {"display_name": "启用采样", "tooltip": "开启采样生成。"},
+      "top_k": {"display_name": "Top K", "tooltip": "Top-k 采样参数。"},
+      "top_p": {"display_name": "Top P", "tooltip": "Top-p 采样参数。"},
+      "temperature": {"display_name": "温度", "tooltip": "采样温度，越高越随机。"},
+      "repetition_penalty": {"display_name": "重复惩罚", "tooltip": "降低重复 token/code 的惩罚系数。"},
+      "subtalker_dosample": {"display_name": "Subtalker 采样", "tooltip": "启用 subtalker 采样。"},
+      "subtalker_top_k": {"display_name": "Subtalker Top K", "tooltip": "Subtalker top-k 采样参数。"},
+      "subtalker_top_p": {"display_name": "Subtalker Top P", "tooltip": "Subtalker top-p 采样参数。"},
+      "subtalker_temperature": {"display_name": "Subtalker 温度", "tooltip": "Subtalker 采样温度。"},
+      "max_new_tokens": {"display_name": "最大新 Token", "tooltip": "生成的最大 codec token 数量。"},
+      "unload_model_after_generation": {"display_name": "生成后清理显存", "tooltip": "生成后调用 gc 与 CUDA cache 清理；不会移除加载节点输出对象。"}
+    },
+    "custom_voice": {
+      "qwen3_tts_model": {"display_name": "Qwen3-TTS 模型", "tooltip": "加载模型节点输出的 Custom Voice 模型。"},
+      "text": {"display_name": "合成文本", "tooltip": "需要合成的文本。"},
+      "language": {"display_name": "语言", "tooltip": "语言名称，例如 Chinese、English；Auto 由模型自动处理。"},
+      "speaker": {"display_name": "说话人", "tooltip": "Custom Voice 模型支持的说话人名称，例如 Vivian。"},
+      "instruct": {"display_name": "风格指令", "tooltip": "可选风格或情绪指令。"},
+      "non_streaming_mode": {"display_name": "非流式文本", "tooltip": "使用非流式文本输入。"}
+    },
+    "voice_design": {
+      "qwen3_tts_model": {"display_name": "Qwen3-TTS 模型", "tooltip": "加载模型节点输出的 Voice Design 模型。"},
+      "text": {"display_name": "合成文本", "tooltip": "需要合成的文本。"},
+      "language": {"display_name": "语言", "tooltip": "语言名称，例如 Chinese、English；Auto 由模型自动处理。"},
+      "instruct": {"display_name": "音色设计指令", "tooltip": "用自然语言描述希望生成的音色、年龄、语气或风格。"},
+      "non_streaming_mode": {"display_name": "非流式文本", "tooltip": "使用非流式文本输入。"}
+    },
+    "voice_clone": {
+      "qwen3_tts_model": {"display_name": "Qwen3-TTS 模型", "tooltip": "加载模型节点输出的 Voice Clone/Base 模型。"},
+      "ref_audio": {"display_name": "参考音频", "tooltip": "用于克隆音色的 ComfyUI AUDIO 输入。"},
+      "text": {"display_name": "合成文本", "tooltip": "需要合成的文本。"},
+      "language": {"display_name": "语言", "tooltip": "语言名称，例如 Chinese、English；Auto 由模型自动处理。"},
+      "ref_text": {"display_name": "参考文本", "tooltip": "参考音频对应文本。关闭仅说话人向量模式时必填。"},
+      "x_vector_only_mode": {"display_name": "仅说话人向量", "tooltip": "只使用说话人向量克隆音色；开启后可不填写参考文本。"},
+      "ref_audio_batch_index": {"display_name": "参考音频批次", "tooltip": "当 AUDIO 含多个 batch 时选择使用哪一个。"},
+      "non_streaming_mode": {"display_name": "非流式文本", "tooltip": "使用非流式文本输入。"}
+    }
+  },
+  "nodes": {
+    "ComfyEasyQwen3TTSLoadModel": {
+      "display_name": "Qwen3-TTS 加载模型",
+      "outputs": {
+        "模型": {"display_name": "模型"},
+        "信息": {"display_name": "信息"}
+      }
+    },
+    "ComfyEasyQwen3TTSCustomVoice": {
+      "display_name": "Qwen3-TTS 预置音色合成",
+      "outputs": {
+        "音频": {"display_name": "音频"},
+        "信息": {"display_name": "信息"}
+      }
+    },
+    "ComfyEasyQwen3TTSVoiceDesign": {
+      "display_name": "Qwen3-TTS 音色设计合成",
+      "outputs": {
+        "音频": {"display_name": "音频"},
+        "信息": {"display_name": "信息"}
+      }
+    },
+    "ComfyEasyQwen3TTSVoiceClone": {
+      "display_name": "Qwen3-TTS 音色克隆合成",
+      "outputs": {
+        "音频": {"display_name": "音频"},
+        "信息": {"display_name": "信息"}
+      }
+    }
+  }
+}
