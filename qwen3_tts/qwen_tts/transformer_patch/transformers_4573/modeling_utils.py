@@ -2965,23 +2965,23 @@ class PreTrainedModel(nn.Module, EmbeddingAccessMixin, ModuleUtilsMixin, PushToH
         `torch.nn.init` functions (which are all no_grad by default), but simply do in-place ops such as
         `module.weight.data.zero_()`.
         """
-        if not hasattr(torch.nn.Module, "smart_apply"):
-            # This function is equivalent to `torch.nn.Module.apply`, except that it dynamically adjust the function
-            # to apply as we go down the graph
-            def smart_apply(self, fn):
-                for module in self.children():
-                    # We found a sub-model: recursively dispatch its own init function now!
-                    if isinstance(module, PreTrainedModel):
-                        module.smart_apply(module._initialize_weights)
-                    else:
-                        module.smart_apply(fn)
-                fn(self)
-                return self
-
-            torch.nn.Module.smart_apply = smart_apply
+        # Keep this helper local instead of installing it on ``torch.nn.Module``.
+        # A host Transformers version may define a same-named method with a
+        # different signature (for example Transformers 5.x adds
+        # ``is_custom_code``), so sharing the global method across the vendored
+        # and host implementations is unsafe.
+        def smart_apply(module, fn):
+            for child in module.children():
+                # We found a sub-model: recursively dispatch its own init function now!
+                if isinstance(child, PreTrainedModel):
+                    smart_apply(child, child._initialize_weights)
+                else:
+                    smart_apply(child, fn)
+            fn(module)
+            return module
 
         # Let the magic happen with this simple call
-        self.smart_apply(self._initialize_weights)
+        smart_apply(self, self._initialize_weights)
 
     def tie_embeddings_and_encoder_decoder(self):
         """
