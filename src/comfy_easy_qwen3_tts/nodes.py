@@ -172,6 +172,38 @@ def _has_config_json(path: Path) -> bool:
     return path.is_dir() and (path / "config.json").is_file()
 
 
+_WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
+_WEIGHT_INDEX_FILES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")
+
+
+def _has_complete_model_weights(path: Path) -> bool:
+    """Return whether a local Transformers directory has usable weight files."""
+    for filename in _WEIGHT_FILES:
+        weight_file = path / filename
+        if weight_file.is_file() and weight_file.stat().st_size > 0:
+            return True
+
+    for filename in _WEIGHT_INDEX_FILES:
+        index_file = path / filename
+        if not index_file.is_file():
+            continue
+        try:
+            with index_file.open("r", encoding="utf-8") as file:
+                weight_map = json.load(file).get("weight_map", {})
+            shard_names = set(weight_map.values())
+        except (OSError, AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if shard_names and all((path / shard).is_file() and (path / shard).stat().st_size > 0 for shard in shard_names):
+            return True
+    return False
+
+
+def _is_complete_model_snapshot(path: Path, required_subdirs: tuple[str, ...] = ()) -> bool:
+    if not _has_config_json(path) or not _has_complete_model_weights(path):
+        return False
+    return all(_has_config_json(path / subdir) and _has_complete_model_weights(path / subdir) for subdir in required_subdirs)
+
+
 def _repo_or_default(repo_id: str, default_repo_id: str) -> str:
     text = (repo_id or "").strip()
     return default_repo_id if not text or text.lower() == "auto" else text
@@ -197,7 +229,12 @@ def _endpoint_for_download(download_source: str, custom_endpoint_host: str) -> s
 
 
 @contextmanager
-def _patched_download_network(endpoint: str | None, custom_endpoint_ip: str, disable_ssl_verification: bool):
+def _patched_download_network(
+    endpoint: str | None,
+    custom_endpoint_ip: str,
+    disable_ssl_verification: bool,
+    disable_xet: bool = False,
+):
     parsed = urlparse(endpoint or "")
     override_host = parsed.hostname
     override_ip = (custom_endpoint_ip or "").strip()
@@ -205,6 +242,22 @@ def _patched_download_network(endpoint: str | None, custom_endpoint_ip: str, dis
     original_requests_request = None
     original_httpx_client_init = None
     original_httpx_async_client_init = None
+    original_disable_xet_env = os.environ.get("HF_HUB_DISABLE_XET")
+    huggingface_hub_constants = None
+    original_disable_xet_constant = None
+
+    if disable_xet:
+        # Third-party endpoints can return upstream Xet metadata whose CAS
+        # credentials are not valid for hf_xet. Force the regular HTTP path so
+        # the endpoint's /resolve response and redirect chain are respected.
+        os.environ["HF_HUB_DISABLE_XET"] = "1"
+        try:
+            from huggingface_hub import constants as huggingface_hub_constants
+
+            original_disable_xet_constant = huggingface_hub_constants.HF_HUB_DISABLE_XET
+            huggingface_hub_constants.HF_HUB_DISABLE_XET = True
+        except (ImportError, AttributeError):
+            huggingface_hub_constants = None
 
     if override_host and override_ip:
         def patched_getaddrinfo(host, *args, **kwargs):
@@ -261,6 +314,12 @@ def _patched_download_network(endpoint: str | None, custom_endpoint_ip: str, dis
 
             httpx.Client.__init__ = original_httpx_client_init
             httpx.AsyncClient.__init__ = original_httpx_async_client_init
+        if huggingface_hub_constants is not None:
+            huggingface_hub_constants.HF_HUB_DISABLE_XET = original_disable_xet_constant
+        if original_disable_xet_env is None:
+            os.environ.pop("HF_HUB_DISABLE_XET", None)
+        else:
+            os.environ["HF_HUB_DISABLE_XET"] = original_disable_xet_env
 
 
 def _snapshot_download_to_dir(
@@ -310,7 +369,12 @@ def _snapshot_download_to_dir(
         kwargs["local_dir_use_symlinks"] = False
 
     try:
-        with _patched_download_network(endpoint, custom_endpoint_ip, bool(disable_ssl_verification)):
+        with _patched_download_network(
+            endpoint,
+            custom_endpoint_ip,
+            bool(disable_ssl_verification),
+            disable_xet=endpoint is not None,
+        ):
             return str(snapshot_download(**kwargs))
     finally:
         if old_endpoint is None:
@@ -332,8 +396,9 @@ def _ensure_downloaded_snapshot(
     revision: str,
     disable_ssl_verification: bool,
     force_download: bool,
+    required_subdirs: tuple[str, ...] = (),
 ) -> str:
-    if _has_config_json(local_dir) and not force_download:
+    if _is_complete_model_snapshot(local_dir, required_subdirs) and not force_download:
         return f"exists: {local_dir}"
     downloaded = _snapshot_download_to_dir(
         repo_id=repo_id,
@@ -345,6 +410,16 @@ def _ensure_downloaded_snapshot(
         disable_ssl_verification=disable_ssl_verification,
         force_download=force_download,
     )
+    if not _is_complete_model_snapshot(local_dir, required_subdirs):
+        missing = ", ".join(
+            str(path)
+            for path in (local_dir, *(local_dir / subdir for subdir in required_subdirs))
+            if not _is_complete_model_snapshot(path)
+        )
+        raise OSError(
+            f"Download of {repo_id} did not produce a complete model snapshot. "
+            f"Missing configuration or weight files in: {missing}. Please retry the download."
+        )
     return f"downloaded: {repo_id} -> {downloaded}"
 
 
@@ -358,10 +433,10 @@ def _ensure_speech_tokenizer_link(model_path: str, tokenizer_dir: str, link_depe
     if target is None:
         return "no external tokenizer directory"
     expected = model_dir / "speech_tokenizer"
-    if (expected / "config.json").is_file():
+    if _is_complete_model_snapshot(expected):
         return "model directory already has speech_tokenizer"
-    if not (target / "config.json").is_file():
-        return f"{target} has no config.json"
+    if not _is_complete_model_snapshot(target):
+        return f"{target} is missing config.json or model weights"
     if expected.exists() or expected.is_symlink():
         return f"{expected} exists but is not a usable tokenizer"
     try:
@@ -804,10 +879,11 @@ class ComfyEasyQwen3TTSOnlineLoadModel:
             revision=(model_revision or "").strip(),
             disable_ssl_verification=bool(disable_ssl_verification),
             force_download=bool(force_download),
+            required_subdirs=("speech_tokenizer",),
         )
 
         embedded_tokenizer_dir = local_model_dir / "speech_tokenizer"
-        if _has_config_json(embedded_tokenizer_dir):
+        if _is_complete_model_snapshot(embedded_tokenizer_dir):
             tokenizer_status = f"exists: {embedded_tokenizer_dir}"
         else:
             tokenizer_status = _ensure_downloaded_snapshot(
